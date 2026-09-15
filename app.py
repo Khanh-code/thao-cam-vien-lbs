@@ -14,10 +14,18 @@ st.set_page_config(
 st.title("Hệ Thống Hướng Dẫn Viên Du Lịch Ngoài Trời - Thảo Cầm Viên")
 
 # Cấu hình Database
-# Tự động nhận cấu hình từ Streamlit Secrets khi lên Cloud, hoặc chạy localhost ở máy
+# Cấu hình Database: đọc từ st.secrets khi chạy trên Streamlit Cloud
 if "postgres" in st.secrets:
-    DB_CONFIG = dict(st.secrets["postgres"])
+    DB_CONFIG = {
+        "dbname": st.secrets["postgres"]["dbname"],
+        "user": st.secrets["postgres"]["user"],
+        "password": st.secrets["postgres"]["password"],
+        "host": st.secrets["postgres"]["host"],
+        "port": str(st.secrets["postgres"]["port"]),
+        "sslmode": "require"
+    }
 else:
+    # Fallback khi chạy thử nghiệm offline trên máy tính
     DB_CONFIG = {
         "dbname": "postgis_36_sample",
         "user": "postgres",
@@ -25,7 +33,6 @@ else:
         "host": "localhost",
         "port": "5432"
     }
-
 # Danh sách file ảnh theo từng phân khu
 EXHIBIT_IMAGES = {
     1: ["1.jpg", "9.jpg", "10.jpg"],
