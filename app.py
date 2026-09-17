@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
@@ -13,7 +14,6 @@ st.set_page_config(
 
 st.title("Hệ Thống Hướng Dẫn Viên Du Lịch Ngoài Trời - Thảo Cầm Viên")
 
-# Cấu hình Database
 # Cấu hình Database: đọc từ st.secrets khi chạy trên Streamlit Cloud
 if "postgres" in st.secrets:
     DB_CONFIG = {
@@ -33,6 +33,17 @@ else:
         "host": "localhost",
         "port": "5432"
     }
+
+# Bảng màu đại diện cho các phân khu ranh giới Polygon
+COLOR_PALETTE = {
+    'Khu Thú Ăn Thịt': '#e74c3c',          # Đỏ
+    'Khu Chuồng Voi': '#8e44ad',           # Tím
+    'Khu Vực Linh Trưởng & Thú Nhỏ': '#e67e22', # Cam
+    'Khu Bò Sát': '#27ae60',               # Xanh lá đậm
+    'Vườn Lan & Xương Rồng': '#2ecc71',    # Xanh ngọc
+    'Khu Vui Chơi Giải Trí': '#3498db'      # Xanh dương
+}
+
 # Danh sách file ảnh theo từng phân khu
 EXHIBIT_IMAGES = {
     1: ["1.jpg", "9.jpg", "10.jpg"],
@@ -50,9 +61,11 @@ def get_all_exhibits():
     try:
         conn = get_connection()
         cur = conn.cursor()
+        # Lấy cả Point (lat, lng) và Polygon (GeoJSON)
         cur.execute("""
             SELECT id, name, description, audio_file, 
-                   ST_X(geom) AS lng, ST_Y(geom) AS lat 
+                   ST_X(geom) AS lng, ST_Y(geom) AS lat,
+                   ST_AsGeoJSON(geom_poly) AS poly_geojson
             FROM exhibits 
             ORDER BY id ASC;
         """)
@@ -68,18 +81,28 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
     try:
         conn = get_connection()
         cur = conn.cursor()
+        # Ưu tiên tính khoảng cách tới viền Polygon (geom_poly), nếu chưa có Polygon thì dùng Point (geom)
         query = """
             SELECT 
                 id, 
                 name, 
                 description, 
                 audio_file, 
-                ROUND(ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography)::numeric, 1) AS distance_meters
+                ROUND(
+                    COALESCE(
+                        ST_Distance(geom_poly::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography),
+                        ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography)
+                    )::numeric, 1
+                ) AS distance_meters
             FROM exhibits
-            WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, %s)
+            WHERE ST_DWithin(
+                COALESCE(geom_poly::geography, geom::geography), 
+                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, 
+                %s
+            )
             ORDER BY distance_meters ASC;
         """
-        cur.execute(query, (lng, lat, lng, lat, radius))
+        cur.execute(query, (lng, lat, lng, lat, lng, lat, radius))
         rows = cur.fetchall()
         cur.close()
         conn.close()
@@ -140,7 +163,7 @@ col_map, col_info = st.columns([7, 5])
 with col_map:
     st.subheader("📍 Bản đồ Thảo Cầm Viên")
     
-    # Nền bản đồ Esri rõ đường nét Thảo Cầm Viên
+    # Nền bản đồ Esri rõ nét khuôn viên
     fmap = folium.Map(
         location=[st.session_state.user_lat, st.session_state.user_lng],
         zoom_start=18,
@@ -148,7 +171,26 @@ with col_map:
         attr="Esri"
     )
 
+    # Vẽ từng phân khu (gồm Polygon và Marker icon)
     for item in all_exhibits:
+        color = COLOR_PALETTE.get(item['name'], '#3388ff')
+
+        # 1. Vẽ ranh giới đa giác Polygon (nếu có)
+        if item.get('poly_geojson'):
+            geo_data = json.loads(item['poly_geojson'])
+            folium.GeoJson(
+                geo_data,
+                name=f"Ranh giới: {item['name']}",
+                style_function=lambda x, c=color: {
+                    'fillColor': c,
+                    'color': c,
+                    'weight': 2,
+                    'fillOpacity': 0.35
+                },
+                tooltip=f"<b>{item['name']}</b>"
+            ).add_to(fmap)
+
+        # 2. Đặt Marker ở tâm phân khu
         folium.Marker(
             location=[item['lat'], item['lng']],
             tooltip=item['name'],
@@ -156,19 +198,21 @@ with col_map:
             icon=folium.Icon(color="green", icon="leaf", prefix="fa")
         ).add_to(fmap)
 
+    # Marker hiển thị vị trí người dùng
     folium.Marker(
         location=[st.session_state.user_lat, st.session_state.user_lng],
         tooltip="Vị trí của bạn",
         icon=folium.Icon(color="red", icon="user", prefix="fa")
     ).add_to(fmap)
 
+    # Vòng tròn bán kính Geofence 50m quanh người dùng
     folium.Circle(
         location=[st.session_state.user_lat, st.session_state.user_lng],
         radius=50,
         color="#1a73e8",
         fill=True,
         fill_color="#4285f4",
-        fill_opacity=0.25
+        fill_opacity=0.2
     ).add_to(fmap)
 
     map_out = st_folium(fmap, width="100%", height=560, returned_objects=["last_clicked"])
@@ -194,7 +238,7 @@ with col_info:
         st.markdown(f"📏 **Khoảng cách:** `{target['distance_meters']} mét`")
         st.write(target['description'])
         
-        # --- BỘ TRÌNH CHIẾU ẢNH (SLIDER & ZOOM) ---
+        # --- BỘ TRÌNH CHIẾU ẢNH ---
         img_list = EXHIBIT_IMAGES.get(target['id'], [])
         valid_images = [img for img in img_list if os.path.exists(os.path.join("images", img))]
 
@@ -206,7 +250,6 @@ with col_info:
                 caption=f"{target['name']} ({idx + 1}/{len(valid_images)})", 
                 use_container_width=True
             )
-            # Hai nút chuyển ảnh qua lại
             c_prev, c_txt, c_next = st.columns([1, 2, 1])
             with c_prev:
                 if st.button("◀ Trước", key="btn_img_prev", use_container_width=True):
