@@ -17,45 +17,38 @@ Hệ thống giải quyết bài toán hỗ trợ khách du lịch tham quan t�
 
 ## 🏛️ 2. KIẾN TRÚC HỆ THỐNG & DATA PIPELINE (4 TẦNG)
 
-Hệ thống được thiết kế theo mô hình kiến trúc 4 tầng chuyên biệt cho dịch vụ định vị (LBS):
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1. CLIENT & INGESTION LAYER (Thu thập & Tích hợp định vị)                   │
-│    • Streamlit UI + Folium Map                                              │
-│    • Mô phỏng GPS thời gian thực (Lat/Lng qua click bản đồ)                 │
-│    • Text Search / Geocoding tìm kiếm phân khu theo từ khóa                 │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-│ (Truy vấn GPS / Toạ độ)
-▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 2. STORAGE & SPATIAL INDEXING LAYER (Lưu trữ & Lập chỉ mục không gian)      │
-│    • Cơ sở dữ liệu: Neon Cloud Serverless PostgreSQL 16 + PostGIS 3.4       │
-│    • POI Master DB (exhibits): Chứa toạ độ Point & Polygon ranh giới      │
-│    • Walkway Topology (walkways): 1.192 đoạn đường đi bộ thực địa OSM     │
-│    • Chỉ mục không gian: GiST Index (idx_walkways_geom) tối ưu R-Tree     │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-│ (Candidates & Spatial Queries)
-▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 3. SPATIO-TEMPORAL SEARCH ENGINE (Truy xuất & Dẫn đường ngữ cảnh)           │
-│    • ST_DWithin & ST_Distance: Lọc và xếp hạng POI trong bán kính 50m       │
-│    • pgRouting (pgr_dijkstra): Tìm lộ trình đi bộ ngắn nhất né vật cản    │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-│ (Enriched POI & Polyline)
-▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 4. APPLICATION & PRESENTATION LAYER (Ứng dụng & Trình bày)                  │
-│    • Hiển thị lớp bản đồ nền Esri World Street Map                          │
-│    • Render trực quan: Lối đi bộ xám, vùng ranh giới màu, lộ trình nét đứt │
-│    • Proximity Notification: Tự động đổi ảnh và phát thuyết minh âm thanh   │
-└─────────────────────────────────────────────────────────────────────────────┘
-### 📋 Chi tiết chức năng từng tầng:
+Hệ thống được thiết kế theo mô hình kiến trúc 4 tầng chuẩn Location-Based Search (LBS):
 
-| Tầng kiến trúc | Thành phần công nghệ | Chức năng chính |
+* **Tầng 1: Client & Ingestion Layer (Thu thập & Tích hợp định vị)**
+  * Giao diện tương tác Streamlit kết hợp bản đồ Folium.
+  * Nhận tọa độ GPS người dùng theo thời gian thực (mô phỏng qua tương tác click bản đồ).
+  * Chức năng Geocoding / Text Search tìm kiếm phân khu theo từ khóa.
+
+* **Tầng 2: Storage & Spatial Indexing Layer (Lưu trữ & Lập chỉ mục không gian)**
+  * Cơ sở dữ liệu: Neon Cloud Serverless PostgreSQL 16 + PostGIS 3.4.
+  * Bảng POI Master (`exhibits`): Lưu trữ tọa độ tâm (Point) và ranh giới chuồng thú (Polygon).
+  * Bảng Topology (`walkways`): 1.192 đoạn đường đi bộ thực tế nội khu Thảo Cầm Viên.
+  * Chỉ mục không gian: GiST Index (`idx_walkways_geom`) tối ưu thuật toán tìm kiếm R-Tree.
+
+* **Tầng 3: Spatio-Temporal Search Engine (Truy xuất & Dẫn đường ngữ cảnh)**
+  * `ST_DWithin` & `ST_Distance`: Xử lý Geofencing phát hiện và tính khoảng cách tới phân khu trong bán kính 50m.
+  * pgRouting (`pgr_dijkstra`): Thuật toán Dijkstra tìm đường đi bộ ngắn nhất trên mạng lưới đường thực tế.
+
+* **Tầng 4: Application & Presentation Layer (Ứng dụng & Trình bày)**
+  * Bản đồ nền tương tác Esri World Street Map.
+  * Trực quan hóa dữ liệu: Hiển thị lối đi bộ màu xám, ranh giới phân khu đa sắc và lộ trình dẫn đường màu xanh nét đứt.
+  * Proximity Notification: Tự động đổi ảnh trực quan và phát Audio thuyết minh khi du khách tiếp cận vị trí.
+
+---
+
+### 📋 Bảng tổng hợp chức năng 4 tầng:
+
+| Tầng kiến trúc | Công nghệ sử dụng | Nhiệm vụ chính |
 | :--- | :--- | :--- |
-| **1. Client & Ingestion** | Streamlit, Folium, Session State | Thu nhận toạ độ mô phỏng của du khách, xử lý tìm kiếm theo tên và tương tác trực quan trên bản đồ. |
-| **2. Storage & Spatial Index** | PostgreSQL, PostGIS, GiST Index | Lưu trữ các đối tượng không gian thực tế (Point, Polygon, LineString), đánh chỉ mục để truy vấn tức thì. |
-| **3. Spatio-Temporal Engine** | `ST_DWithin`, `pgr_dijkstra` | Xử lý logic không gian: phát hiện chuồng thú khi đến gần (50m) và tính đường đi bộ qua 1.192 cạnh đồ thị. |
-| **4. Application & Presentation** | Web UI, HTML5 Audio, Dynamic Image | Phản hồi kết quả cho du khách: vẽ đường đi, hiển thị hình ảnh xoay vòng và tự động phát thuyết minh âm thanh. |
+| **1. Client & Ingestion** | Streamlit, Folium | Tiếp nhận GPS người dùng và tìm kiếm phân khu |
+| **2. Storage & Indexing** | PostgreSQL, PostGIS, GiST Index | Lưu trữ đối tượng hình học và lập chỉ mục không gian |
+| **3. Spatio-Temporal Engine** | `ST_DWithin`, `pgr_dijkstra` | Xử lý Geofencing 50m và tính đường đi ngắn nhất |
+| **4. Presentation Layer** | Streamlit UI, HTML5 Audio | Hiển thị bản đồ, ảnh minh họa và phát audio thuyết minh |
 ---
 
 ## 🧩 3. THIẾT KẾ MÃ NGUỒN THEO 4 TÍNH CHẤT MODULE (SOFTWARE DESIGN)
