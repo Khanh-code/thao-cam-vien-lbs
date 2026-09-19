@@ -123,6 +123,7 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
 # Thuật toán Dijkstra tìm lộ trình đi bộ ngắn nhất
 # Thuật toán Dijkstra tìm và ghép nối lộ trình đi bộ mượt mà, đúng chiều
 # Thuật toán Dijkstra tìm và ghép nối lộ trình đi bộ mượt mà, đúng chiều
+# Hàm tìm đường đi bộ Dijkstra
 def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
     try:
         conn = get_connection()
@@ -148,7 +149,7 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
                     CASE 
                         WHEN r.node = w.target THEN ST_Reverse(w.geom) 
                         ELSE w.geom 
-                    END AS geom_ordered
+                    END AS ordered_geom
                 FROM pgr_dijkstra(
                     'SELECT id, source, target, cost, reverse_cost FROM walkways',
                     (SELECT id FROM start_vertex),
@@ -158,7 +159,7 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
                 JOIN walkways AS w ON r.edge = w.id
                 ORDER BY r.seq
             )
-            SELECT ST_AsGeoJSON(geom_ordered) AS geom_json, cost FROM dijkstra_route;
+            SELECT ST_AsGeoJSON(ordered_geom) AS geom_json, cost FROM dijkstra_route;
         """
         cur.execute(query, (user_lng, user_lat, target_lng, target_lat))
         rows = cur.fetchall()
@@ -241,27 +242,45 @@ with st.sidebar:
 col_map, col_info = st.columns([7, 5])
 
 with col_map:
-    st.subheader("📍 Bản đồ Thảo Cầm Viên")
-    
-    fmap = folium.Map(
-        location=[st.session_state.user_lat, st.session_state.user_lng],
-        zoom_start=18,
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri"
-    )
+    # 2. Xử lý và vẽ đường đi bộ pgRouting
+    if st.session_state.target_route_id:
+        target_info = next((item for item in all_exhibits if item['id'] == st.session_state.target_route_id), None)
+        if target_info:
+            path_segments = get_shortest_path(
+                st.session_state.user_lat, 
+                st.session_state.user_lng,
+                target_info['lat'], 
+                target_info['lng']
+            )
+            
+            if path_segments:
+                full_walk_path = [(st.session_state.user_lat, st.session_state.user_lng)]
+                total_distance = 0.0
 
-    # 1. Vẽ toàn bộ mạng lưới đường đi bộ nội khu (Màu xám/trắng viền cam mờ)
-    for w in all_walkways:
-        if w.get('geom_json'):
-            w_geo = json.loads(w['geom_json'])
-            w_coords = [(pt[1], pt[0]) for pt in w_geo['coordinates']]
-            folium.PolyLine(
-                w_coords,
-                color="#7f8c8d",
-                weight=4,
-                opacity=0.6,
-                tooltip=f"Lối đi bộ: {w['name']}"
-            ).add_to(fmap)
+                for seg in path_segments:
+                    seg_geo = json.loads(seg['geom_json'])
+                    coords = [(pt[1], pt[0]) for pt in seg_geo['coordinates']]
+                    for c in coords:
+                        if not full_walk_path or full_walk_path[-1] != c:
+                            full_walk_path.append(c)
+                    total_distance += float(seg.get('cost', 0.0))
+
+                target_pt = (target_info['lat'], target_info['lng'])
+                if full_walk_path[-1] != target_pt:
+                    full_walk_path.append(target_pt)
+
+                folium.PolyLine(
+                    full_walk_path,
+                    color="#0055FF",
+                    weight=6,
+                    opacity=0.9,
+                    dash_array="8, 10",
+                    tooltip=f"Lộ trình đi bộ đến {target_info['name']}"
+                ).add_to(fmap)
+
+                st.info(f"🚶 **Lộ trình đi bộ đến:** {target_info['name']} (Ước tính cự ly: ~{int(total_distance)}m)")
+            else:
+                st.warning("Không tìm thấy đường đi bộ liên thông đến địa điểm này!")
 
     # 2. Vẽ ranh giới Polygon và Marker từng phân khu
     for item in all_exhibits:
