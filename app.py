@@ -121,6 +121,7 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
         return []
 
 # Thuật toán Dijkstra tìm lộ trình đi bộ ngắn nhất
+# Thuật toán Dijkstra tìm và ghép nối lộ trình đi bộ mượt mà, đúng chiều
 def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
     try:
         conn = get_connection()
@@ -138,7 +139,14 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
                 LIMIT 1
             ),
             dijkstra_route AS (
-                SELECT r.seq, r.node, r.edge, r.cost, w.geom
+                SELECT 
+                    r.seq,
+                    -- Đảo chiều tọa độ nếu lộ trình đi ngược chiều đoạn đường
+                    CASE 
+                        WHEN r.node = w.target THEN ST_Reverse(w.geom) 
+                        ELSE w.geom 
+                    END AS geom_ordered,
+                    r.cost
                 FROM pgr_dijkstra(
                     'SELECT id, source, target, cost, reverse_cost FROM walkways',
                     (SELECT id FROM start_vertex),
@@ -148,16 +156,20 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
                 JOIN walkways AS w ON r.edge = w.id
                 ORDER BY r.seq
             )
-            SELECT ST_AsGeoJSON(geom) AS geom_json, cost FROM dijkstra_route;
+            -- Nối tất cả các đoạn lại thành một đường liên tục duy nhất
+            SELECT 
+                ST_AsGeoJSON(ST_LineMerge(ST_Collect(geom_ordered))) AS merged_route,
+                SUM(cost) AS total_cost
+            FROM dijkstra_route;
         """
         cur.execute(query, (user_lng, user_lat, target_lng, target_lat))
-        rows = cur.fetchall()
+        result = cur.fetchone()
         cur.close()
         conn.close()
-        return rows
+        return result
     except Exception as e:
         st.error(f"Lỗi tìm đường pgRouting: {e}")
-        return []
+        return None
 
 all_exhibits = get_all_exhibits()
 all_walkways = get_all_walkways()
@@ -278,42 +290,44 @@ with col_map:
         ).add_to(fmap)
 
     # 3. Vẽ lộ trình dẫn đường liên tục: Bắt đầu từ vị trí người dùng -> qua mạng lưới -> đến đích
+    # 2. Xử lý và vẽ đường đi bộ pgRouting mượt mà theo đúng lối đi
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item['id'] == st.session_state.target_route_id), None)
         if target_info:
-            path_segments = get_shortest_path(
+            route_res = get_shortest_path(
                 st.session_state.user_lat, 
                 st.session_state.user_lng,
                 target_info['lat'], 
                 target_info['lng']
             )
             
-            # Tập hợp tất cả tọa độ tạo thành 1 chuỗi liên tục
-            full_route_points = []
-            
-            # Điểm 1: Chính là vị trí người dùng đang đứng
-            full_route_points.append((st.session_state.user_lat, st.session_state.user_lng))
-            
-            # Các điểm trên mạng lưới đường pgRouting
-            for seg in path_segments:
-                seg_geo = json.loads(seg['geom_json'])
-                for pt in seg_geo['coordinates']:
-                    full_route_points.append((pt[1], pt[0]))
-                    
-            # Điểm cuối: Nối thẳng vào tâm phân khu đích đến
-            full_route_points.append((target_info['lat'], target_info['lng']))
+            if route_res and route_res.get('merged_route'):
+                route_geo = json.loads(route_res['merged_route'])
+                
+                # Trích xuất danh sách tọa độ (lat, lng) của toàn bộ tuyến đường
+                if route_geo['type'] == 'LineString':
+                    coords = [(pt[1], pt[0]) for pt in route_geo['coordinates']]
+                elif route_geo['type'] == 'MultiLineString':
+                    coords = []
+                    for line in route_geo['coordinates']:
+                        coords.extend([(pt[1], pt[0]) for pt in line])
+                else:
+                    coords = []
 
-            # Vẽ tuyến đường hoàn chỉnh
-            folium.PolyLine(
-                full_route_points,
-                color="#0066FF",
-                weight=6,
-                opacity=0.9,
-                dash_array="8, 10",
-                tooltip="Lộ trình đi bộ ngắn nhất"
-            ).add_to(fmap)
-            
-            st.info(f"🚶 **Đang dẫn đường đến:** {target_info['name']} (Từ vị trí hiện tại của bạn)")
+                # Nối thêm điểm từ người dùng vào đầu tuyến và điểm đích vào cuối tuyến
+                full_path = [(st.session_state.user_lat, st.session_state.user_lng)] + coords + [(target_info['lat'], target_info['lng'])]
+
+                folium.PolyLine(
+                    full_path,
+                    color="#0066FF",
+                    weight=5,
+                    opacity=0.9,
+                    dash_array="6, 8",
+                    tooltip="Lộ trình đi bộ theo đường nội khu"
+                ).add_to(fmap)
+                
+                total_m = int(route_res.get('total_cost', 0))
+                st.info(f"🚶 **Đang dẫn đường đến:** {target_info['name']} (Tổng quãng đường: ~{total_m}m)") (Từ vị trí hiện tại của bạn)")
 
     # 4. Marker hiển thị vị trí người dùng & Bán kính phát hiện
     folium.Marker(
