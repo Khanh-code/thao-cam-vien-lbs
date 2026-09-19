@@ -1,10 +1,11 @@
 import json
+import os
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-import psycopg2
-from psycopg2.extras import RealDictCursor
-import os
+
+from config import COLOR_PALETTE, EXHIBIT_IMAGES
+from db_services import get_all_exhibits, get_all_walkways, query_nearby, get_shortest_path
 
 st.set_page_config(
     page_title="Hệ Thống Hướng Dẫn Viên Du Lịch - Thảo Cầm Viên",
@@ -14,160 +15,11 @@ st.set_page_config(
 
 st.title("Hệ Thống Hướng Dẫn Viên Du Lịch Ngoài Trời - Thảo Cầm Viên")
 
-# Cấu hình kết nối cơ sở dữ liệu PostgreSQL / Neon
-if "postgres" in st.secrets:
-    DB_CONFIG = {
-        "dbname": st.secrets["postgres"]["dbname"],
-        "user": st.secrets["postgres"]["user"],
-        "password": st.secrets["postgres"]["password"],
-        "host": st.secrets["postgres"]["host"],
-        "port": str(st.secrets["postgres"]["port"]),
-        "sslmode": "require"
-    }
-else:
-    DB_CONFIG = {
-        "dbname": "postgis_36_sample",
-        "user": "postgres",
-        "password": "YOUR_LOCAL_PASSWORD",
-        "host": "localhost",
-        "port": "5432"
-    }
-
-COLOR_PALETTE = {
-    'Khu Thú Ăn Thịt': '#e74c3c',
-    'Khu Chuồng Voi': '#8e44ad',
-    'Khu Vực Linh Trưởng & Thú Nhỏ': '#e67e22',
-    'Khu Bò Sát': '#27ae60',
-    'Vườn Lan & Xương Rồng': '#2ecc71',
-    'Khu Vui Chơi Giải Trí (Đu Quay)': '#3498db',
-    'Khu Vui Chơi Giải Trí': '#3498db'
-}
-
-EXHIBIT_IMAGES = {
-    1: ["1.jpg", "9.jpg", "10.jpg"],
-    2: ["2.jpg", "11.jpg"],
-    3: ["3.jpg", "4.jpg", "5.jpg"],
-    4: ["6.jpg", "7.jpg", "8.jpg"],
-    5: ["12.jpg", "13.jpg"],
-    6: ["14.jpg", "15.jpg", "16.jpg", "17.jpg"]
-}
-
-def get_connection():
-    return psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
-
-def get_all_exhibits():
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT id, name, description, audio_file, 
-                   ST_X(geom) AS lng, ST_Y(geom) AS lat,
-                   ST_AsGeoJSON(geom_poly) AS poly_geojson
-            FROM exhibits 
-            ORDER BY id ASC;
-        """)
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return rows
-    except Exception as e:
-        st.error(f"Lỗi cơ sở dữ liệu: {e}")
-        return []
-
-def get_all_walkways():
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id, name, ST_AsGeoJSON(geom) AS geom_json FROM walkways;")
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return rows
-    except Exception as e:
-        return []
-
-def query_nearby(lat: float, lng: float, radius: float = 50.0):
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        query = """
-            SELECT 
-                id, 
-                name, 
-                description, 
-                audio_file, 
-                ROUND(
-                    COALESCE(
-                        ST_Distance(geom_poly::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography),
-                        ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography)
-                    )::numeric, 1
-                ) AS distance_meters
-            FROM exhibits
-            WHERE ST_DWithin(
-                COALESCE(geom_poly::geography, geom::geography), 
-                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, 
-                %s
-            )
-            ORDER BY distance_meters ASC;
-        """
-        cur.execute(query, (lng, lat, lng, lat, lng, lat, radius))
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return rows
-    except Exception as e:
-        st.error(f"Lỗi truy vấn không gian PostGIS: {e}")
-        return []
-
-def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        query = """
-            WITH 
-            start_vertex AS (
-                SELECT id FROM walkways_vertices_pgr 
-                ORDER BY the_geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326) 
-                LIMIT 1
-            ),
-            end_vertex AS (
-                SELECT id FROM walkways_vertices_pgr 
-                ORDER BY the_geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326) 
-                LIMIT 1
-            ),
-            dijkstra_route AS (
-                SELECT 
-                    r.seq,
-                    r.node,
-                    r.edge,
-                    r.cost,
-                    CASE 
-                        WHEN r.node = w.target THEN ST_Reverse(w.geom) 
-                        ELSE w.geom 
-                    END AS ordered_geom
-                FROM pgr_dijkstra(
-                    'SELECT id, source, target, cost, reverse_cost FROM walkways',
-                    (SELECT id FROM start_vertex),
-                    (SELECT id FROM end_vertex),
-                    directed := false
-                ) AS r
-                JOIN walkways AS w ON r.edge = w.id
-                ORDER BY r.seq
-            )
-            SELECT ST_AsGeoJSON(ordered_geom) AS geom_json, cost FROM dijkstra_route;
-        """
-        cur.execute(query, (user_lng, user_lat, target_lng, target_lat))
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return rows
-    except Exception as e:
-        st.error(f"Lỗi tìm đường pgRouting: {e}")
-        return []
-
+# Tải dữ liệu thông qua module dịch vụ (đã có cơ chế cache tối ưu)
 all_exhibits = get_all_exhibits()
 all_walkways = get_all_walkways()
 
+# Khởi tạo trạng thái phiên làm việc (Session State)
 if "user_lat" not in st.session_state:
     st.session_state.user_lat = 10.78775
 if "user_lng" not in st.session_state:
@@ -177,7 +29,7 @@ if "img_index" not in st.session_state:
 if "target_route_id" not in st.session_state:
     st.session_state.target_route_id = None
 
-# --- SIDEBAR ---
+# --- KHUNG ĐIỀU KHIỂN BÊN TRÁI (SIDEBAR) ---
 with st.sidebar:
     st.header("🎮 Bảng Điều Khiển")
 
@@ -213,7 +65,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    st.subheader("🚶 Dẫn Đường Đi Bộ")
+    st.subheader("🚶 Dẫn Đường Đi Bộ (pgRouting)")
     route_options = {item['id']: item['name'] for item in all_exhibits}
     selected_target = st.selectbox(
         "Chọn địa điểm muốn đến:",
@@ -233,7 +85,7 @@ with st.sidebar:
 
     st.caption("Bán kính phát hiện GPS: **50 mét**")
 
-# --- GIAO DIỆN CHÍNH ---
+# --- GIAO DIỆN CHÍNH (BẢN ĐỒ & THUYẾT MINH) ---
 col_map, col_info = st.columns([7, 5])
 
 with col_map:
@@ -246,7 +98,7 @@ with col_map:
         attr="Esri"
     )
 
-    # 1. Vẽ toàn bộ mạng lưới đường đi bộ nội khu
+    # 1. Vẽ mạng lưới lối đi bộ nội khu
     for w in all_walkways:
         if w.get('geom_json'):
             w_geo = json.loads(w['geom_json'])
@@ -254,12 +106,12 @@ with col_map:
             folium.PolyLine(
                 w_coords,
                 color="#7f8c8d",
-                weight=4,
+                weight=3,
                 opacity=0.6,
                 tooltip=f"Lối đi bộ: {w['name']}"
             ).add_to(fmap)
 
-    # 2. Vẽ ranh giới Polygon và Marker từng phân khu
+    # 2. Vẽ Polygon ranh giới và Marker cho từng phân khu
     for item in all_exhibits:
         color = COLOR_PALETTE.get(item['name'], '#3388ff')
         if item.get('poly_geojson'):
@@ -319,11 +171,11 @@ with col_map:
                     tooltip=f"Lộ trình đi bộ đến {target_info['name']}"
                 ).add_to(fmap)
 
-                st.info(f"🚶 **Lộ trình đi bộ đến:** {target_info['name']} (Ước tính cự ly: ~{int(total_distance)}m)")
+                st.info(f"🚶 **Lộ trình đi bộ đến:** {target_info['name']} (Cự ly ước tính: ~{int(total_distance)} mét)")
             else:
                 st.warning("Không tìm thấy đường đi bộ liên thông đến địa điểm này!")
 
-    # 4. Marker người dùng & Bán kính phát hiện
+    # 4. Vị trí người dùng & Bán kính phát hiện GPS
     folium.Marker(
         location=[st.session_state.user_lat, st.session_state.user_lng],
         tooltip="Vị trí của bạn",
@@ -339,6 +191,7 @@ with col_map:
         fill_opacity=0.2
     ).add_to(fmap)
 
+    # Hiển thị bản đồ và bắt sự kiện click
     map_out = st_folium(fmap, width="100%", height=560, returned_objects=["last_clicked"])
 
     if map_out and map_out.get("last_clicked"):
