@@ -148,7 +148,7 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
                     CASE 
                         WHEN r.node = w.target THEN ST_Reverse(w.geom) 
                         ELSE w.geom 
-                    END AS ordered_geom
+                    END AS geom_ordered
                 FROM pgr_dijkstra(
                     'SELECT id, source, target, cost, reverse_cost FROM walkways',
                     (SELECT id FROM start_vertex),
@@ -158,7 +158,7 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
                 JOIN walkways AS w ON r.edge = w.id
                 ORDER BY r.seq
             )
-            SELECT ST_AsGeoJSON(ordered_geom) AS geom_json, cost FROM dijkstra_route;
+            SELECT ST_AsGeoJSON(geom_ordered) AS geom_json, cost FROM dijkstra_route;
         """
         cur.execute(query, (user_lng, user_lat, target_lng, target_lat))
         rows = cur.fetchall()
