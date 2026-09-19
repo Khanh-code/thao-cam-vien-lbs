@@ -65,7 +65,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    st.subheader("🚶 Dẫn Đường Đi Bộ (pgRouting)")
+    st.subheader("🚶 Dẫn Đường Đi Bộ")
     route_options = {item['id']: item['name'] for item in all_exhibits}
     selected_target = st.selectbox(
         "Chọn địa điểm muốn đến:",
