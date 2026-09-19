@@ -61,7 +61,6 @@ def get_all_exhibits():
     try:
         conn = get_connection()
         cur = conn.cursor()
-        # Lấy cả Point (lat, lng) và Polygon (GeoJSON)
         cur.execute("""
             SELECT id, name, description, audio_file, 
                    ST_X(geom) AS lng, ST_Y(geom) AS lat,
@@ -81,7 +80,6 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
     try:
         conn = get_connection()
         cur = conn.cursor()
-        # Ưu tiên tính khoảng cách tới viền Polygon (geom_poly), nếu chưa có Polygon thì dùng Point (geom)
         query = """
             SELECT 
                 id, 
@@ -111,6 +109,45 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
         st.error(f"Lỗi truy vấn không gian PostGIS: {e}")
         return []
 
+# Hàm tìm đường đi bộ pgRouting ngắn nhất bằng thuật toán Dijkstra
+def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        query = """
+            WITH 
+            start_vertex AS (
+                SELECT id FROM walkways_vertices_pgr 
+                ORDER BY the_geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326) 
+                LIMIT 1
+            ),
+            end_vertex AS (
+                SELECT id FROM walkways_vertices_pgr 
+                ORDER BY the_geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326) 
+                LIMIT 1
+            ),
+            dijkstra_route AS (
+                SELECT r.seq, r.node, r.edge, r.cost, w.geom
+                FROM pgr_dijkstra(
+                    'SELECT id, source, target, cost, reverse_cost FROM walkways',
+                    (SELECT id FROM start_vertex),
+                    (SELECT id FROM end_vertex),
+                    directed := false
+                ) AS r
+                JOIN walkways AS w ON r.edge = w.id
+                ORDER BY r.seq
+            )
+            SELECT ST_AsGeoJSON(geom) AS geom_json, cost FROM dijkstra_route;
+        """
+        cur.execute(query, (user_lng, user_lat, target_lng, target_lat))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return rows
+    except Exception as e:
+        st.error(f"Lỗi tìm đường pgRouting: {e}")
+        return []
+
 all_exhibits = get_all_exhibits()
 
 if "user_lat" not in st.session_state:
@@ -119,10 +156,12 @@ if "user_lng" not in st.session_state:
     st.session_state.user_lng = 106.70560
 if "img_index" not in st.session_state:
     st.session_state.img_index = 0
+if "target_route_id" not in st.session_state:
+    st.session_state.target_route_id = None
 
-# --- SIDEBAR: ĐIỀU KHIỂN MÔ PHỎNG ---
+# --- SIDEBAR: ĐIỀU KHIỂN ---
 with st.sidebar:
-    st.header("🎮 Địa Điểm Checkin")
+    st.header("🎮 Bảng Điều Khiển")
 
     # 1. Tìm kiếm
     st.subheader("1. Tìm kiếm vị trí")
@@ -139,22 +178,44 @@ with st.sidebar:
                     st.session_state.user_lat = r['lat']
                     st.session_state.user_lng = r['lng']
                     st.session_state.img_index = 0
+                    st.session_state.target_route_id = None
                     st.rerun()
         else:
             st.warning("Không tìm thấy kết quả.")
 
     st.markdown("---")
 
-    # 2. Danh sách chọn nhanh
-    st.subheader("2. Danh Sách Chọn Theo Phân Khu")
+    # 2. Danh sách di chuyển nhanh
+    st.subheader("2. Chọn Nhanh Phân Khu")
     for item in all_exhibits:
         if st.button(item['name'], key=f"select_{item['id']}", use_container_width=True):
             st.session_state.user_lat = item['lat']
             st.session_state.user_lng = item['lng']
             st.session_state.img_index = 0
+            st.session_state.target_route_id = None
             st.rerun()
 
     st.markdown("---")
+
+    # 3. Dẫn đường đi bộ pgRouting
+    st.subheader("🚶 Dẫn Đường Đi Bộ (pgRouting)")
+    route_options = {item['id']: item['name'] for item in all_exhibits}
+    selected_target = st.selectbox(
+        "Chọn địa điểm muốn đến:",
+        options=list(route_options.keys()),
+        format_func=lambda x: route_options[x]
+    )
+
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🗺️ Tìm đường", use_container_width=True):
+            st.session_state.target_route_id = selected_target
+            st.rerun()
+    with col_btn2:
+        if st.button("❌ Xóa đường", use_container_width=True):
+            st.session_state.target_route_id = None
+            st.rerun()
+
     st.caption("Bán kính phát hiện GPS: **50 mét**")
 
 # --- GIAO DIỆN CHÍNH ---
@@ -163,7 +224,6 @@ col_map, col_info = st.columns([7, 5])
 with col_map:
     st.subheader("📍 Bản đồ Thảo Cầm Viên")
     
-    # Nền bản đồ Esri rõ nét khuôn viên
     fmap = folium.Map(
         location=[st.session_state.user_lat, st.session_state.user_lng],
         zoom_start=18,
@@ -171,11 +231,9 @@ with col_map:
         attr="Esri"
     )
 
-    # Vẽ từng phân khu (gồm Polygon và Marker icon)
+    # 1. Vẽ ranh giới Polygon và Marker từng phân khu
     for item in all_exhibits:
         color = COLOR_PALETTE.get(item['name'], '#3388ff')
-
-        # 1. Vẽ ranh giới đa giác Polygon (nếu có)
         if item.get('poly_geojson'):
             geo_data = json.loads(item['poly_geojson'])
             folium.GeoJson(
@@ -190,7 +248,6 @@ with col_map:
                 tooltip=f"<b>{item['name']}</b>"
             ).add_to(fmap)
 
-        # 2. Đặt Marker ở tâm phân khu
         folium.Marker(
             location=[item['lat'], item['lng']],
             tooltip=item['name'],
@@ -198,14 +255,36 @@ with col_map:
             icon=folium.Icon(color="green", icon="leaf", prefix="fa")
         ).add_to(fmap)
 
-    # Marker hiển thị vị trí người dùng
+    # 2. Xử lý và vẽ đường đi bộ pgRouting (nếu người dùng bấm Tìm đường)
+    if st.session_state.target_route_id:
+        target_info = next((item for item in all_exhibits if item['id'] == st.session_state.target_route_id), None)
+        if target_info:
+            path_segments = get_shortest_path(
+                st.session_state.user_lat, 
+                st.session_state.user_lng,
+                target_info['lat'], 
+                target_info['lng']
+            )
+            total_dist = sum(seg['cost'] for seg in path_segments)
+            for seg in path_segments:
+                seg_geo = json.loads(seg['geom_json'])
+                coords = [(pt[1], pt[0]) for pt in seg_geo['coordinates']]
+                folium.PolyLine(
+                    coords,
+                    color="#0066FF",
+                    weight=6,
+                    opacity=0.85,
+                    dash_array="6, 8"
+                ).add_to(fmap)
+            st.info(f"🚶 **Lộ trình dẫn đến:** {target_info['name']} (Tổng cự ly đi bộ: ~{int(total_dist)}m)")
+
+    # 3. Vị trí người dùng & Bán kính phát hiện
     folium.Marker(
         location=[st.session_state.user_lat, st.session_state.user_lng],
         tooltip="Vị trí của bạn",
         icon=folium.Icon(color="red", icon="user", prefix="fa")
     ).add_to(fmap)
 
-    # Vòng tròn bán kính Geofence 50m quanh người dùng
     folium.Circle(
         location=[st.session_state.user_lat, st.session_state.user_lng],
         radius=50,
@@ -238,7 +317,6 @@ with col_info:
         st.markdown(f"📏 **Khoảng cách:** `{target['distance_meters']} mét`")
         st.write(target['description'])
         
-        # --- BỘ TRÌNH CHIẾU ẢNH ---
         img_list = EXHIBIT_IMAGES.get(target['id'], [])
         valid_images = [img for img in img_list if os.path.exists(os.path.join("images", img))]
 
@@ -263,7 +341,6 @@ with col_info:
         else:
             st.info("💡 Đặt các file ảnh (.jpg) vào thư mục `images/` để hiển thị.")
 
-        # Trình phát âm thanh
         audio_file = os.path.join("audio", str(target.get('audio_file')))
         if os.path.exists(audio_file):
             st.audio(audio_file, format="audio/mp3", autoplay=True)
