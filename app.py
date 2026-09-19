@@ -14,7 +14,7 @@ st.set_page_config(
 
 st.title("Hệ Thống Hướng Dẫn Viên Du Lịch Ngoài Trời - Thảo Cầm Viên")
 
-# Cấu hình Database: đọc từ st.secrets khi chạy trên Streamlit Cloud
+# Cấu hình Database
 if "postgres" in st.secrets:
     DB_CONFIG = {
         "dbname": st.secrets["postgres"]["dbname"],
@@ -25,7 +25,6 @@ if "postgres" in st.secrets:
         "sslmode": "require"
     }
 else:
-    # Fallback khi chạy thử nghiệm offline trên máy tính
     DB_CONFIG = {
         "dbname": "postgis_36_sample",
         "user": "postgres",
@@ -36,15 +35,14 @@ else:
 
 # Bảng màu đại diện cho các phân khu ranh giới Polygon
 COLOR_PALETTE = {
-    'Khu Thú Ăn Thịt': '#e74c3c',          # Đỏ
-    'Khu Chuồng Voi': '#8e44ad',           # Tím
-    'Khu Vực Linh Trưởng & Thú Nhỏ': '#e67e22', # Cam
-    'Khu Bò Sát': '#27ae60',               # Xanh lá đậm
-    'Vườn Lan & Xương Rồng': '#2ecc71',    # Xanh ngọc
-    'Khu Vui Chơi Giải Trí': '#3498db'      # Xanh dương
+    'Khu Thú Ăn Thịt': '#e74c3c',
+    'Khu Chuồng Voi': '#8e44ad',
+    'Khu Vực Linh Trưởng & Thú Nhỏ': '#e67e22',
+    'Khu Bò Sát': '#27ae60',
+    'Vườn Lan & Xương Rồng': '#2ecc71',
+    'Khu Vui Chơi Giải Trí': '#3498db'
 }
 
-# Danh sách file ảnh theo từng phân khu
 EXHIBIT_IMAGES = {
     1: ["1.jpg", "9.jpg", "10.jpg"],
     2: ["2.jpg", "11.jpg"],
@@ -74,6 +72,19 @@ def get_all_exhibits():
         return rows
     except Exception as e:
         st.error(f"Lỗi cơ sở dữ liệu: {e}")
+        return []
+
+# Lấy tất cả các đoạn đường đi bộ nội khu để vẽ lên bản đồ
+def get_all_walkways():
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, ST_AsGeoJSON(geom) AS geom_json FROM walkways;")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return rows
+    except Exception as e:
         return []
 
 def query_nearby(lat: float, lng: float, radius: float = 50.0):
@@ -109,7 +120,7 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
         st.error(f"Lỗi truy vấn không gian PostGIS: {e}")
         return []
 
-# Hàm tìm đường đi bộ pgRouting ngắn nhất bằng thuật toán Dijkstra
+# Thuật toán Dijkstra tìm lộ trình đi bộ ngắn nhất
 def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
     try:
         conn = get_connection()
@@ -149,6 +160,7 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
         return []
 
 all_exhibits = get_all_exhibits()
+all_walkways = get_all_walkways()
 
 if "user_lat" not in st.session_state:
     st.session_state.user_lat = 10.78775
@@ -163,7 +175,6 @@ if "target_route_id" not in st.session_state:
 with st.sidebar:
     st.header("🎮 Bảng Điều Khiển")
 
-    # 1. Tìm kiếm
     st.subheader("1. Tìm kiếm vị trí")
     keyword = st.text_input("Gõ tên hoặc đặc điểm:", placeholder="voi, hổ, bò sát, vườn lan...")
     if keyword:
@@ -185,7 +196,6 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # 2. Danh sách di chuyển nhanh
     st.subheader("2. Chọn Nhanh Phân Khu")
     for item in all_exhibits:
         if st.button(item['name'], key=f"select_{item['id']}", use_container_width=True):
@@ -197,7 +207,6 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # 3. Dẫn đường đi bộ pgRouting
     st.subheader("🚶 Dẫn Đường Đi Bộ (pgRouting)")
     route_options = {item['id']: item['name'] for item in all_exhibits}
     selected_target = st.selectbox(
@@ -231,7 +240,20 @@ with col_map:
         attr="Esri"
     )
 
-    # 1. Vẽ ranh giới Polygon và Marker từng phân khu
+    # 1. Vẽ toàn bộ mạng lưới đường đi bộ nội khu (Màu xám/trắng viền cam mờ)
+    for w in all_walkways:
+        if w.get('geom_json'):
+            w_geo = json.loads(w['geom_json'])
+            w_coords = [(pt[1], pt[0]) for pt in w_geo['coordinates']]
+            folium.PolyLine(
+                w_coords,
+                color="#7f8c8d",
+                weight=4,
+                opacity=0.6,
+                tooltip=f"Lối đi bộ: {w['name']}"
+            ).add_to(fmap)
+
+    # 2. Vẽ ranh giới Polygon và Marker từng phân khu
     for item in all_exhibits:
         color = COLOR_PALETTE.get(item['name'], '#3388ff')
         if item.get('poly_geojson'):
@@ -255,7 +277,7 @@ with col_map:
             icon=folium.Icon(color="green", icon="leaf", prefix="fa")
         ).add_to(fmap)
 
-    # 2. Xử lý và vẽ đường đi bộ pgRouting (nếu người dùng bấm Tìm đường)
+    # 3. Vẽ lộ trình dẫn đường liên tục: Bắt đầu từ vị trí người dùng -> qua mạng lưới -> đến đích
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item['id'] == st.session_state.target_route_id), None)
         if target_info:
@@ -265,20 +287,35 @@ with col_map:
                 target_info['lat'], 
                 target_info['lng']
             )
-            total_dist = sum(seg['cost'] for seg in path_segments)
+            
+            # Tập hợp tất cả tọa độ tạo thành 1 chuỗi liên tục
+            full_route_points = []
+            
+            # Điểm 1: Chính là vị trí người dùng đang đứng
+            full_route_points.append((st.session_state.user_lat, st.session_state.user_lng))
+            
+            # Các điểm trên mạng lưới đường pgRouting
             for seg in path_segments:
                 seg_geo = json.loads(seg['geom_json'])
-                coords = [(pt[1], pt[0]) for pt in seg_geo['coordinates']]
-                folium.PolyLine(
-                    coords,
-                    color="#0066FF",
-                    weight=6,
-                    opacity=0.85,
-                    dash_array="6, 8"
-                ).add_to(fmap)
-            st.info(f"🚶 **Lộ trình dẫn đến:** {target_info['name']} (Tổng cự ly đi bộ: ~{int(total_dist)}m)")
+                for pt in seg_geo['coordinates']:
+                    full_route_points.append((pt[1], pt[0]))
+                    
+            # Điểm cuối: Nối thẳng vào tâm phân khu đích đến
+            full_route_points.append((target_info['lat'], target_info['lng']))
 
-    # 3. Vị trí người dùng & Bán kính phát hiện
+            # Vẽ tuyến đường hoàn chỉnh
+            folium.PolyLine(
+                full_route_points,
+                color="#0066FF",
+                weight=6,
+                opacity=0.9,
+                dash_array="8, 10",
+                tooltip="Lộ trình đi bộ ngắn nhất"
+            ).add_to(fmap)
+            
+            st.info(f"🚶 **Đang dẫn đường đến:** {target_info['name']} (Từ vị trí hiện tại của bạn)")
+
+    # 4. Marker hiển thị vị trí người dùng & Bán kính phát hiện
     folium.Marker(
         location=[st.session_state.user_lat, st.session_state.user_lng],
         tooltip="Vị trí của bạn",
