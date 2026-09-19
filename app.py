@@ -327,7 +327,7 @@ with col_map:
                 ).add_to(fmap)
                 
                 total_m = int(route_res.get('total_cost', 0))
-                st.info(f"🚶 **Đang dẫn đường đến:** {target_info['name']} (Tổng quãng đường: ~{total_m}m)") (Từ vị trí hiện tại của bạn)")
+                st.info(f"🚶 **Đang dẫn đường đến:** {target_info['name']} (Tổng quãng đường: ~{total_m}m) (Từ vị trí hiện tại của bạn)")
 
     # 4. Marker hiển thị vị trí người dùng & Bán kính phát hiện
     folium.Marker(
