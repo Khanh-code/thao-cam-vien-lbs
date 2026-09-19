@@ -122,25 +122,20 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
 
 # Thuật toán Dijkstra tìm lộ trình đi bộ ngắn nhất
 # Thuật toán Dijkstra tìm và ghép nối lộ trình đi bộ mượt mà, đúng chiều
+# Thuật toán Dijkstra tìm và ghép nối lộ trình đi bộ mượt mà, đúng chiều
 def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
     try:
         conn = get_connection()
         cur = conn.cursor()
-        
-        # 1. Tìm node xuất phát và node đích gần nhất trên mạng lưới
-        # 2. Chạy giải thuật Dijkstra tìm tuyến ngắn nhất
-        # 3. Đảo chiều đoạn đường nếu lộ trình đi ngược (ST_Reverse) để tạo đường liên tục
         query = """
             WITH 
             start_vertex AS (
-                SELECT id, the_geom 
-                FROM walkways_vertices_pgr 
+                SELECT id FROM walkways_vertices_pgr 
                 ORDER BY the_geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326) 
                 LIMIT 1
             ),
             end_vertex AS (
-                SELECT id, the_geom 
-                FROM walkways_vertices_pgr 
+                SELECT id FROM walkways_vertices_pgr 
                 ORDER BY the_geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326) 
                 LIMIT 1
             ),
@@ -153,7 +148,7 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
                     CASE 
                         WHEN r.node = w.target THEN ST_Reverse(w.geom) 
                         ELSE w.geom 
-                    END AS geom_ordered
+                    END AS ordered_geom
                 FROM pgr_dijkstra(
                     'SELECT id, source, target, cost, reverse_cost FROM walkways',
                     (SELECT id FROM start_vertex),
@@ -163,10 +158,7 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
                 JOIN walkways AS w ON r.edge = w.id
                 ORDER BY r.seq
             )
-            SELECT 
-                ST_AsGeoJSON(geom_ordered) AS geom_json,
-                cost
-            FROM dijkstra_route;
+            SELECT ST_AsGeoJSON(ordered_geom) AS geom_json, cost FROM dijkstra_route;
         """
         cur.execute(query, (user_lng, user_lat, target_lng, target_lat))
         rows = cur.fetchall()
@@ -174,7 +166,7 @@ def get_shortest_path(user_lat, user_lng, target_lat, target_lng):
         conn.close()
         return rows
     except Exception as e:
-        st.error(f"Lỗi truy vấn tìm đường pgRouting: {e}")
+        st.error(f"Lỗi tìm đường pgRouting: {e}")
         return []
 
 all_exhibits = get_all_exhibits()
@@ -298,6 +290,7 @@ with col_map:
     # 3. Vẽ lộ trình dẫn đường liên tục: Bắt đầu từ vị trí người dùng -> qua mạng lưới -> đến đích
     # 2. Xử lý và vẽ đường đi bộ pgRouting mượt mà theo đúng lối đi
     # Xử lý và vẽ đường đi bộ ngắn nhất từ vị trí người dùng đến điểm đích
+    # 2. Xử lý và vẽ đường đi bộ pgRouting bám sát mạng lưới đường
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item['id'] == st.session_state.target_route_id), None)
         if target_info:
@@ -308,36 +301,37 @@ with col_map:
                 target_info['lng']
             )
             
-            # Khởi tạo chuỗi tọa độ bắt đầu từ chính vị trí người dùng đang đứng
-            full_route_coords = [(st.session_state.user_lat, st.session_state.user_lng)]
-            total_distance = 0.0
-
             if path_segments:
+                # Tạo danh sách các điểm đi bộ tuần tự
+                full_walk_path = [(st.session_state.user_lat, st.session_state.user_lng)]
+                total_distance = 0.0
+
                 for seg in path_segments:
                     seg_geo = json.loads(seg['geom_json'])
-                    for pt in seg_geo['coordinates']:
-                        coord = (pt[1], pt[0])
-                        # Tránh trùng lặp điểm nối tiếp nhau
-                        if not full_route_coords or full_route_coords[-1] != coord:
-                            full_route_coords.append(coord)
+                    coords = [(pt[1], pt[0]) for pt in seg_geo['coordinates']]
+                    for c in coords:
+                        if not full_walk_path or full_walk_path[-1] != c:
+                            full_walk_path.append(c)
                     total_distance += float(seg.get('cost', 0.0))
-            
-            # Nối điểm cuối cùng vào thẳng tâm phân khu đích đến
-            target_pt = (target_info['lat'], target_info['lng'])
-            if full_route_coords[-1] != target_pt:
-                full_route_coords.append(target_pt)
 
-            # Vẽ tuyến đường đi bộ ngắn nhất (màu xanh dương đậm, nét đứt nổi bật)
-            folium.PolyLine(
-                full_route_coords,
-                color="#0066FF",
-                weight=6,
-                opacity=0.9,
-                dash_array="8, 10",
-                tooltip=f"Đường đi bộ ngắn nhất đến {target_info['name']}"
-            ).add_to(fmap)
-            
-            st.info(f"🚶 **Đang dẫn đường ngắn nhất đến:** {target_info['name']} (Ước tính cự ly: ~{int(total_distance)}m)")
+                # Đảm bảo điểm cuối nối thẳng vào phân khu đích
+                target_pt = (target_info['lat'], target_info['lng'])
+                if full_walk_path[-1] != target_pt:
+                    full_walk_path.append(target_pt)
+
+                # Vẽ đường nét đứt màu xanh bám theo các trục đường đi bộ
+                folium.PolyLine(
+                    full_walk_path,
+                    color="#0055FF",
+                    weight=6,
+                    opacity=0.9,
+                    dash_array="6, 8",
+                    tooltip=f"Lộ trình đi bộ đến {target_info['name']}"
+                ).add_to(fmap)
+
+                st.info(f"🚶 **Lộ trình đi bộ đến:** {target_info['name']} (Cự ly đi bộ: ~{int(total_distance)}m)")
+            else:
+                st.warning("Không tìm thấy đường đi bộ liên thông đến địa điểm này!")
     # 4. Marker hiển thị vị trí người dùng & Bán kính phát hiện
     folium.Marker(
         location=[st.session_state.user_lat, st.session_state.user_lng],
