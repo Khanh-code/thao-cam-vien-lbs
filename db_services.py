@@ -21,6 +21,8 @@ def database_cursor():
         conn = pool.getconn()
         with conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Chỉ áp dụng trong transaction hiện tại -> tương thích Neon pooler
+                cur.execute("SET LOCAL statement_timeout = '15s'")
                 yield cur
     finally:
         try:

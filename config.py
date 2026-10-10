@@ -20,7 +20,8 @@ DB_CONFIG = {
     # "prefer": dùng SSL nếu server hỗ trợ (Neon), vẫn chạy được với PostgreSQL local không bật SSL
     "sslmode": setting("postgres", "sslmode", "prefer"),
     "connect_timeout": 10,
-    "options": "-c statement_timeout=15000",
+    # KHÔNG dùng "options" ở đây: Neon pooler (PgBouncer) từ chối tham số khởi động này.
+    # Giới hạn thời gian truy vấn được đặt bằng SET LOCAL trong db_services.database_cursor().
 }
 POOL_SIZE = int(setting("postgres", "pool_size", 10))
 if not 1 <= POOL_SIZE <= 100:

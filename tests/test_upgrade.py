@@ -43,6 +43,7 @@ def test_audio_paths(path):
 
 class FakeCursor:
     def __enter__(self): return self
+    def execute(self, *args): pass
     def __exit__(self, *args): pass
 
 class FakeConnection:

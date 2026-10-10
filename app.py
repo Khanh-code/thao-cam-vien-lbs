@@ -31,9 +31,11 @@ try:
     content_translations = translations(language)
     all_exhibits = [localize(item, language, content_translations) for item in raw_exhibits]
     all_walkways = get_all_walkways()
-except Exception:
+except Exception as load_error:
     logging.exception('Database load failed')
     st.error(tr('Không thể tải dữ liệu. Kiểm tra database và chạy migration.', 'Cannot load data. Check database configuration and run the migration.'))
+    with st.expander(tr('Chi tiết lỗi', 'Error details')):
+        st.code(f'{type(load_error).__name__}: {str(load_error).strip()[:500]}')
     st.stop()
 if not all_exhibits:
     st.info(tr('Database chưa có phân khu.', 'No zones in the database.'))
