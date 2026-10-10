@@ -54,14 +54,23 @@ def synthesize(text, language):
 def translations(language):
     try:
         with database_cursor() as cur:
-            try:
-                cur.execute('''SELECT exhibit_id, name, description, audio_file,
-                                      (audio_data IS NOT NULL) AS has_audio, updated_at
-                               FROM exhibit_translations WHERE language=%s''', (language,))
-            except UndefinedColumn:
-                # Chưa chạy migration 004 -> chưa có giọng đọc tự động
-                cur.connection.rollback()
-                cur.execute('SELECT exhibit_id, name, description, audio_file FROM exhibit_translations WHERE language=%s', (language,))
+            # Thử từ bản đầy đủ nhất (migration 006) lùi dần về bản cũ nếu database chưa nâng cấp
+            queries = [
+                '''SELECT exhibit_id, name, description, audio_file, (audio_data IS NOT NULL) AS has_audio, updated_at,
+                          machine_translated, back_translation, quality
+                   FROM exhibit_translations WHERE language=%s''',
+                '''SELECT exhibit_id, name, description, audio_file, (audio_data IS NOT NULL) AS has_audio, updated_at
+                   FROM exhibit_translations WHERE language=%s''',
+                'SELECT exhibit_id, name, description, audio_file FROM exhibit_translations WHERE language=%s',
+            ]
+            for i, query in enumerate(queries):
+                try:
+                    cur.execute(query, (language,))
+                    break
+                except UndefinedColumn:
+                    cur.connection.rollback()
+                    if i == len(queries) - 1:
+                        raise
             return {row['exhibit_id']: dict(row) for row in cur.fetchall()}
     except UndefinedTable:
         # Existing deployments can continue serving guests before migration 001.
@@ -91,7 +100,8 @@ def localize(item, language, translated):
     result['audio_key'] = None
     if item['id'] in translated:
         row = translated[item['id']]
-        result.update({k: v for k, v in row.items() if k not in ('exhibit_id', 'has_audio', 'updated_at')})
+        result.update({k: v for k, v in row.items() if k not in ('exhibit_id', 'has_audio', 'updated_at', 'machine_translated', 'back_translation', 'quality')})
+        result['review'] = {k: row.get(k) for k in ('machine_translated', 'back_translation', 'quality')}
         if row.get('has_audio'):
             # Giọng đọc tự động khớp đúng nội dung admin đã lưu
             result['audio_key'] = (item['id'], language, str(row.get('updated_at')))
@@ -126,20 +136,61 @@ def with_vietnamese_name(item, original_name, language):
     return result
 
 
-def save_translation(exhibit_id, language, name, description, synthesize_audio=True):
+def save_translation(exhibit_id, language, name, description, review=None):
     """Lưu tên + thuyết minh và tạo giọng đọc mới cho đúng nội dung đó.
-    Nếu tạo giọng đọc thất bại thì KHÔNG lưu gì (ném AudioError), tránh audio cũ đọc sai nội dung mới."""
+    Nếu tạo giọng đọc thất bại thì KHÔNG lưu gì (ném AudioError), tránh audio cũ đọc sai nội dung mới.
+    review: kết quả kiểm tra bản dịch {machine_translated, back_translation, quality} (nếu có)."""
     require_admin()
     if language not in LANGUAGES or not name.strip() or not description.strip():
         raise ValueError('Language, name and description are required')
-    audio = synthesize(description.strip(), language) if synthesize_audio else None
+    audio = synthesize(description.strip(), language)
+    review = review or {}
     with database_cursor() as cur:
-        cur.execute('''INSERT INTO exhibit_translations(exhibit_id, language, name, description, audio_file, audio_data)
-            VALUES (%s,%s,%s,%s,NULL,%s) ON CONFLICT(exhibit_id, language)
-            DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description,
-            audio_file=NULL, audio_data=EXCLUDED.audio_data, updated_at=now()''',
-            (exhibit_id, language, name.strip(), description.strip(),
-             psycopg2.Binary(audio) if audio else None))
+        params = (exhibit_id, language, name.strip(), description.strip(), psycopg2.Binary(audio))
+        try:
+            cur.execute('''INSERT INTO exhibit_translations(exhibit_id, language, name, description, audio_file, audio_data,
+                                                          machine_translated, back_translation, quality)
+                VALUES (%s,%s,%s,%s,NULL,%s,%s,%s,%s) ON CONFLICT(exhibit_id, language)
+                DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description, audio_file=NULL,
+                audio_data=EXCLUDED.audio_data, machine_translated=EXCLUDED.machine_translated,
+                back_translation=EXCLUDED.back_translation, quality=EXCLUDED.quality, updated_at=now()''',
+                params + (bool(review.get('machine_translated')), review.get('back_translation'), review.get('quality')))
+        except UndefinedColumn:
+            # Chưa chạy migration 006 -> lưu không kèm thông tin kiểm tra
+            cur.connection.rollback()
+            cur.execute('''INSERT INTO exhibit_translations(exhibit_id, language, name, description, audio_file, audio_data)
+                VALUES (%s,%s,%s,%s,NULL,%s) ON CONFLICT(exhibit_id, language)
+                DO UPDATE SET name=EXCLUDED.name, description=EXCLUDED.description,
+                audio_file=NULL, audio_data=EXCLUDED.audio_data, updated_at=now()''', params)
     translations.clear()
     get_all_exhibits.clear()
     query_nearby.clear()
+
+
+def check_translation(language, description):
+    """Admin tự sửa bản Anh/Trung -> dịch ngược để kiểm tra (không chặn việc lưu nếu máy dịch lỗi)."""
+    import translator
+    try:
+        back, _ = translator.translate(description, language, 'vi')
+    except translator.TranslationError:
+        return {'machine_translated': False, 'back_translation': None, 'quality': None}
+    return {'machine_translated': False, 'back_translation': back, 'quality': None}
+
+
+def save_with_auto_translation(exhibit_id, name_vi, description_vi):
+    """Lưu bản tiếng Việt rồi TỰ DỊCH sang Anh + Trung (có bảng thuật ngữ + dịch ngược để kiểm tra).
+    Trả về {lang: kết quả kiểm tra hoặc {'error': ...}}. Bản tiếng Việt luôn được lưu trước."""
+    import translator
+    save_translation(exhibit_id, 'vi', name_vi, description_vi)
+    results = {}
+    for lang in translator.TARGETS:
+        try:
+            name, _ = translator.translate(name_vi.strip(), 'vi', lang)
+            checked = translator.translate_with_review(description_vi.strip(), lang)
+            save_translation(exhibit_id, lang, name, checked['text'],
+                             review={'machine_translated': True, 'back_translation': checked['back'],
+                                     'quality': checked['score']})
+            results[lang] = dict(checked, name=name)
+        except (translator.TranslationError, AudioError) as e:
+            results[lang] = {'error': str(e)}
+    return results
