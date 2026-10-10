@@ -1,24 +1,30 @@
+import os
 import streamlit as st
 
-# Cấu hình kết nối cơ sở dữ liệu PostgreSQL / Neon
-if "postgres" in st.secrets:
-    DB_CONFIG = {
-        "dbname": st.secrets["postgres"]["dbname"],
-        "user": st.secrets["postgres"]["user"],
-        "password": st.secrets["postgres"]["password"],
-        "host": st.secrets["postgres"]["host"],
-        "port": str(st.secrets["postgres"]["port"]),
-        "sslmode": "require"
-    }
-else:
-    DB_CONFIG = {
-        "dbname": "postgis_36_sample",
-        "user": "postgres",
-        "password": "YOUR_LOCAL_PASSWORD",
-        "host": "localhost",
-        "port": "5432"
-    }
+def setting(section, key, default=None):
+    env = os.getenv(f"{section}_{key}".upper())
+    if env is not None:
+        return env
+    try:
+        return st.secrets.get(section, {}).get(key, default)
+    except Exception:
+        # Chưa có .streamlit/secrets.toml -> dùng giá trị mặc định
+        return default
 
+DB_CONFIG = {
+    "dbname": setting("postgres", "dbname", "postgis_36_sample"),
+    "user": setting("postgres", "user", "postgres"),
+    "password": setting("postgres", "password", ""),
+    "host": setting("postgres", "host", "localhost"),
+    "port": setting("postgres", "port", "5432"),
+    # "prefer": dùng SSL nếu server hỗ trợ (Neon), vẫn chạy được với PostgreSQL local không bật SSL
+    "sslmode": setting("postgres", "sslmode", "prefer"),
+    "connect_timeout": 10,
+    "options": "-c statement_timeout=15000",
+}
+POOL_SIZE = int(setting("postgres", "pool_size", 10))
+if not 1 <= POOL_SIZE <= 100:
+    raise ValueError("postgres.pool_size must be between 1 and 100")
 # Bảng màu đại diện cho từng phân khu
 COLOR_PALETTE = {
     'Khu Thú Ăn Thịt': '#e74c3c',

@@ -1,5 +1,7 @@
 # 🌿 HỆ THỐNG DỊCH VỤ DỰA TRÊN VỊ TRÍ (LBS) - HƯỚNG DẪN DU LỊCH TỰ TÚC THẢO CẦM VIÊN SÀI GÒN
 
+> Bản nâng cấp: xem mục 5 và [UPGRADE_GUIDE.md](UPGRADE_GUIDE.md) (đa ngôn ngữ, admin/khách, connection pool).
+
 > **Đề tài**: Hệ thống tìm kiếm định vị, phân tích không gian và dẫn đường thông minh phục vụ khách tham quan tự túc tại Thảo Cầm Viên Sài Gòn.
 > **Triển khai thực tế**: [Thảo Cầm Viên LBS Live Demo](https://hdvthaocamvien.streamlit.app/)
 > **Kho mã nguồn**: [GitHub Repository](https://github.com/khanh-code/thao-cam-vien-lbs)
@@ -81,7 +83,26 @@ Toàn bộ mã nguồn được tái cấu trúc thành 3 module chuyên biệt 
 
 ---
 
-## 🛠️ 5. HƯỚNG DẪN CÀI ĐẶT VÀ KHỞI CHẠY CỤC BỘ
+## 🆕 5. CHỨC NĂNG BỔ SUNG (BẢN NÂNG CẤP)
+
+* **Đa ngôn ngữ Việt / Anh**: chọn ngôn ngữ ở đầu thanh bên trái. Toàn bộ giao diện, tên phân khu, thuyết minh và audio (`audio/en/`) đổi theo ngôn ngữ. Phân khu chưa có bản dịch sẽ báo và hiển thị tiếng Việt, không phát nhầm audio tiếng Việt khi đang chọn tiếng Anh.
+* **Phân quyền Admin / Khách**: khách dùng ngay không cần đăng nhập. Admin đăng nhập trong mục *Quản trị* để biên tập tên, thuyết minh và đường dẫn audio của từng phân khu theo từng ngôn ngữ (bảng `exhibit_translations`).
+  * Tài khoản admin lưu trong bảng `admin_users`, **mặc định `admin` / `123456`**. Khi còn dùng mật khẩu mặc định, app hiện cảnh báo nhắc đổi.
+  * Nút **🔑 Đổi mật khẩu**: nhập mật khẩu hiện tại + mật khẩu mới (≥ 6 ký tự, nhập lại 2 lần). Mật khẩu lưu dạng hash PBKDF2-SHA256 có salt, phiên admin hết hạn sau 1 giờ, quyền được kiểm tra lại ở tầng dịch vụ (`require_admin`).
+* **Tài khoản khách tạm & lưu vết lộ trình** (`tracking.py`):
+  * Khách quét **mã QR** ở cổng → web tự tạo tài khoản tạm (UUID) và gắn vào URL `?v=...`, tải lại trang vẫn giữ tài khoản. Admin tạo/tải mã QR trong mục *📱 Mã QR vào web*.
+  * Mỗi lần khách đổi vị trí → lưu 1 điểm `geometry(Point)` vào `visitor_tracks`. Lộ trình đã đi được vẽ lên bản đồ (màu cam) và tính quãng đường bằng `ST_Length(ST_MakeLine(...)::geography)`.
+  * **Ưu tiên phân khu chưa ghé**: khi đứng gần 2 phân khu có khoảng cách chênh nhau ≤ 5 m (`tie_metres`), truy vấn xếp hạng dùng window function `MIN(distance) OVER ()` + `EXISTS` trên `exhibit_visits` để phát thuyết minh phân khu khách **chưa** nghe trước. Phân khu đã ghé hiện dấu ✔ màu xám trên bản đồ.
+  * **Thống kê**: admin xem số khách đã ghé từng phân khu theo ngày (mỗi khách tính 1 lần / phân khu / ngày), số tài khoản khách mới và số điểm lưu vết.
+  * **Tự reset**: tài khoản khách chỉ có hiệu lực trong chu kỳ `reset_period = "day"` (mỗi ngày) hoặc `"week"` (mỗi thứ Hai), theo giờ Việt Nam. Hết chu kỳ, mã cũ tự hết hạn và khách được cấp tài khoản mới; số liệu thống kê các ngày trước vẫn được giữ.
+* **Nhiều người dùng đồng thời**: `ThreadedConnectionPool` (mặc định 10 kết nối, dùng luân phiên) + semaphore chống quá tải; kết nối luôn được trả lại kể cả khi truy vấn lỗi. `query_nearby` cache 5 giây, `get_shortest_path` cache 60 giây theo tọa độ, có giới hạn số mục.
+* **Chỉ mục không gian cho geofencing**: `migrations/001_multilingual.sql` tạo index GiST biểu thức `COALESCE(geom_poly::geography, geom::geography)` khớp đúng điều kiện `ST_DWithin` trong `query_nearby`, để truy vấn bán kính dùng được chỉ mục.
+* **Bảo mật cấu hình**: không còn mật khẩu viết cứng trong mã nguồn; mọi thông tin kết nối đọc từ `.streamlit/secrets.toml` (đã đưa vào `.gitignore`) hoặc biến môi trường.
+* **Kiểm thử tự động**: `tests/test_upgrade.py` (pytest) kiểm tra hash mật khẩu, khách không được lưu nội dung, đường dẫn audio không hợp lệ, pool nhiều luồng, tách session và giao diện hai ngôn ngữ.
+
+---
+
+## 🛠️ 6. HƯỚNG DẪN CÀI ĐẶT VÀ KHỞI CHẠY CỤC BỘ
 
 ### Yêu cầu tiên quyết
 * Python 3.10+
@@ -90,23 +111,40 @@ Toàn bộ mã nguồn được tái cấu trúc thành 3 module chuyên biệt 
 ### Các bước cài đặt
 1. **Clone repository**:
    ```bash
-   git clone [https://github.com/khanh-code/thao-cam-vien-lbs.git](https://github.com/khanh-code/thao-cam-vien-lbs.git)
+   git clone https://github.com/khanh-code/thao-cam-vien-lbs.git
    cd thao-cam-vien-lbs
-Cài đặt thư viện phụ thuộc:
+   ```
+2. **Cài đặt thư viện phụ thuộc**:
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+3. **Cấu hình kết nối**: chép `.streamlit/secrets.toml.example` thành `.streamlit/secrets.toml` và điền thông tin thật:
+   ```toml
+   [postgres]
+   dbname = "neondb"
+   user = "neondb_owner"
+   password = "YOUR_PASSWORD"
+   host = "your-host.neon.tech"
+   port = 5432
 
-Bash
-pip install -r requirements.txt
-Cấu hình thông tin kết nối:
-Tạo file .streamlit/secrets.toml với nội dung:
+   [visitor]
+   reset_period = "day"   # hoặc "week"
+   ```
+4. **Chạy migration** (tạo bảng bản dịch, index, tài khoản admin mặc định và các bảng khách tạm; chạy lại nhiều lần vẫn an toàn):
+   ```bash
+   python run_migrations.py
+   ```
+5. **Khởi chạy ứng dụng**:
+   ```bash
+   streamlit run app.py
+   ```
+6. **Kiểm thử**:
+   ```bash
+   python -m pytest tests -q
+   ```
 
-Ini, TOML
-[postgres]
-dbname = "neondb"
-user = "neondb_owner"
-password = "YOUR_PASSWORD"
-host = "your-host.neon.tech"
-port = 5432
-Khởi chạy ứng dụng:
-
-Bash
-streamlit run app.py
+> Sau bước 4, đăng nhập admin bằng `admin` / `123456` rồi bấm **🔑 Đổi mật khẩu**.
+>
+> Test đụng database (`tests/test_visitors.py`) chỉ chạy khi đặt `TCV_TEST_DB=1` và trỏ tới database **thử nghiệm**, không chạy trên database thật.

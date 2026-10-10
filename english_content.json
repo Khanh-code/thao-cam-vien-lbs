@@ -1,0 +1,37 @@
+{
+  "Khu Thú Ăn Thịt": {
+    "name": "Carnivore Zone",
+    "description": "This zone houses carnivorous animals such as lions, Bengal white tigers, Indochinese tigers and leopards.",
+    "audio_file": "en/thu_an_thit.mp3"
+  },
+  "Khu Chuồng Voi": {
+    "name": "Elephant Enclosure",
+    "description": "The elephants live in a spacious enclosure near the giraffes, beside the river.",
+    "audio_file": "en/chuong_voi.mp3"
+  },
+  "Khu Vực Linh Trưởng & Thú Nhỏ": {
+    "name": "Primates and Small Mammals",
+    "description": "This zone is home to monkeys, gibbons and active small mammals.",
+    "audio_file": "en/linh_truong.mp3"
+  },
+  "Khu Bò Sát": {
+    "name": "Reptile Zone",
+    "description": "See pythons, snakes, crocodiles and tropical turtles in this zone.",
+    "audio_file": "en/bo_sat.mp3"
+  },
+  "Vườn Lan & Xương Rồng": {
+    "name": "Orchid and Cactus Garden",
+    "description": "Located to the left of the main stage, this green garden is a popular place to take photographs.",
+    "audio_file": "en/vuon_lan.mp3"
+  },
+  "Khu Vui Chơi Giải Trí (Đu Quay)": {
+    "name": "Amusement Zone",
+    "description": "This zone offers amusement rides and outdoor activities for children.",
+    "audio_file": "en/vui_choi.mp3"
+  },
+  "Khu Vui Chơi Giải Trí": {
+    "name": "Amusement Zone",
+    "description": "This zone offers amusement rides and outdoor activities for children.",
+    "audio_file": "en/vui_choi.mp3"
+  }
+}

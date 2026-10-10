@@ -1,4 +1,7 @@
-streamlit
+streamlit>=1.41,<2
 folium
 streamlit-folium
 psycopg2-binary
+gTTS>=2.5,<3
+qrcode[pil]
+pytest

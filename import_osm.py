@@ -3,14 +3,7 @@ import psycopg2
 
 
 # 1. Điền thông tin kết nối Neon của bạn
-DB_CONFIG = {
-    "dbname": "neondb",
-    "user": "neondb_owner",
-    "password": "npg_rIDqWC4QXUd8",
-    "host": "ep-fancy-dust-b3d0chpg-pooler.c-4.ap-southeast-1.aws.neon.tech",
-    "port": "5432",
-    "sslmode": "require"
-}
+from config import DB_CONFIG
 
 # 2. Đọc file GeoJSON tải từ overpass-turbo
 with open("export.geojson", "r", encoding="utf-8") as f:

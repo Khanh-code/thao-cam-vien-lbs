@@ -1,18 +1,38 @@
+from contextlib import contextmanager
+from threading import BoundedSemaphore
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
 import streamlit as st
-from config import DB_CONFIG
+from config import DB_CONFIG, POOL_SIZE
 
-def get_connection():
-    """Tạo kết nối mới tới cơ sở dữ liệu PostgreSQL."""
-    return psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
+@st.cache_resource
+def resources():
+    return (ThreadedConnectionPool(1, POOL_SIZE, **DB_CONFIG),
+            BoundedSemaphore(POOL_SIZE))
+
+@contextmanager
+def database_cursor():
+    pool, slots = resources()
+    if not slots.acquire(timeout=10):
+        raise TimeoutError("Database is busy")
+    conn = None
+    try:
+        conn = pool.getconn()
+        with conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                yield cur
+    finally:
+        try:
+            if conn is not None:
+                pool.putconn(conn, close=bool(conn.closed))
+        finally:
+            slots.release()
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_all_exhibits():
     """Truy vấn danh sách tất cả các điểm trưng bày kèm tọa độ và polygon ranh giới."""
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
+    with database_cursor() as cur:
         cur.execute("""
             SELECT id, name, description, audio_file, 
                    ST_X(geom) AS lng, ST_Y(geom) AS lat,
@@ -21,36 +41,23 @@ def get_all_exhibits():
             ORDER BY id ASC;
         """)
         rows = cur.fetchall()
-        cur.close()
-        conn.close()
         return rows
-    except Exception as e:
-        st.error(f"Lỗi cơ sở dữ liệu khi tải danh sách phân khu: {e}")
-        return []
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_all_walkways():
     """Truy vấn toàn bộ mạng lưới đường đi bộ nội khu từ PostGIS (có lưu cache)."""
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
+    with database_cursor() as cur:
         cur.execute("SELECT id, name, ST_AsGeoJSON(geom) AS geom_json FROM walkways;")
         rows = cur.fetchall()
-        cur.close()
-        conn.close()
         return rows
-    except Exception as e:
-        st.error(f"Lỗi khi tải mạng lưới đường đi: {e}")
-        return []
 
+@st.cache_data(ttl=5, max_entries=2048, show_spinner=False)
 def query_nearby(lat: float, lng: float, radius: float = 50.0):
     """
     Truy vấn không gian ST_DWithin phát hiện các phân khu nằm trong bán kính người dùng.
-    Hàm này không dùng cache tĩnh vì tọa độ người dùng thay đổi theo thời gian thực.
+    Cache ngắn 5 giây theo tọa độ, giới hạn số mục để tránh tăng RAM vô hạn.
     """
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
+    with database_cursor() as cur:
         query = """
             SELECT 
                 id, 
@@ -73,18 +80,12 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
         """
         cur.execute(query, (lng, lat, lng, lat, lng, lat, radius))
         rows = cur.fetchall()
-        cur.close()
-        conn.close()
         return rows
-    except Exception as e:
-        st.error(f"Lỗi truy vấn không gian PostGIS: {e}")
-        return []
 
+@st.cache_data(ttl=60, max_entries=1024, show_spinner=False)
 def get_shortest_path(user_lat: float, user_lng: float, target_lat: float, target_lng: float):
     """Thuật toán tìm đường ngắn nhất pgr_dijkstra qua mạng lưới walkways."""
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
+    with database_cursor() as cur:
         query = """
             WITH 
             start_vertex AS (
@@ -120,9 +121,4 @@ def get_shortest_path(user_lat: float, user_lng: float, target_lat: float, targe
         """
         cur.execute(query, (user_lng, user_lat, target_lng, target_lat))
         rows = cur.fetchall()
-        cur.close()
-        conn.close()
         return rows
-    except Exception as e:
-        st.error(f"Lỗi tìm đường pgRouting: {e}")
-        return []
