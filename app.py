@@ -90,9 +90,6 @@ else:
         st.session_state.narration = (visitor_id, user_pos, target_raw['id'])
         if visitor_id:
             tracking_call(tracking.mark_visited, visitor_id, target_raw['id'])
-visited = (tracking_call(tracking.visited_ids, visitor_id, default=set()) or set()) if visitor_id else set()
-period_text = tr('mỗi ngày', 'daily') if tracking.RESET_PERIOD == 'day' else tr('mỗi tuần', 'weekly')
-show_track = False
 with st.sidebar:
     st.header(tr('🎮 Bảng Điều Khiển', '🎮 Controls'))
     st.subheader(tr('1. Tìm kiếm vị trí', '1. Search places'))
@@ -133,15 +130,6 @@ with st.sidebar:
             st.session_state.target_route_id = None
             st.rerun()
     st.caption(tr('Bán kính phát hiện GPS: **50 mét**', 'Detection radius: **50 metres**'))
-    if visitor_id:
-        st.markdown('---')
-        st.subheader(tr('🧭 Hành trình của bạn', '🧭 Your journey'))
-        st.caption(tr(f'Mã khách tạm: `{visitor_id[:8]}` · tự reset {period_text}', f'Temporary visitor ID: `{visitor_id[:8]}` · resets {period_text}'))
-        done = len(visited & {x['id'] for x in all_exhibits})
-        st.progress(done / len(all_exhibits), text=tr(f'Đã ghé {done}/{len(all_exhibits)} phân khu', f'Visited {done}/{len(all_exhibits)} zones'))
-        walked = tracking_call(tracking.track_length_metres, visitor_id, default=0.0) or 0.0
-        st.caption(tr(f'Quãng đường đã đi: ~{int(walked)} m', f'Distance walked: ~{int(walked)} m'))
-        show_track = st.toggle(tr('Hiện lộ trình đã đi trên bản đồ', 'Show my path on the map'), value=True, key='show_track')
 col_map, col_info = st.columns([7, 5])
 with col_map:
     st.subheader(tr('📍 Bản đồ Thảo Cầm Viên', '📍 Saigon Zoo Map'))
@@ -156,11 +144,7 @@ with col_map:
         if item.get('poly_geojson'):
             geo_data = json.loads(item['poly_geojson'])
             folium.GeoJson(geo_data, name=tr(f'Ranh giới: {item["name"]}', f'Boundary: {item["name"]}'), style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 2, 'fillOpacity': 0.35}, tooltip=f'<b>{item["name"]}</b>').add_to(fmap)
-        folium.Marker(location=[item['lat'], item['lng']], tooltip=html.escape(item["name"]), popup=html.escape(item["name"]), icon=folium.Icon(color='gray' if item['id'] in visited else 'green', icon='check' if item['id'] in visited else 'leaf', prefix='fa')).add_to(fmap)
-    if show_track:
-        track_points = tracking_call(tracking.visitor_track, visitor_id, default=[]) or []
-        if len(track_points) >= 2:
-            folium.PolyLine(track_points, color='#e67e22', weight=4, opacity=0.85, tooltip=tr('Lộ trình bạn đã đi', 'Your path so far')).add_to(fmap)
+        folium.Marker(location=[item['lat'], item['lng']], tooltip=html.escape(item["name"]), popup=html.escape(item["name"]), icon=folium.Icon(color='green', icon='leaf', prefix='fa')).add_to(fmap)
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item["id"] == st.session_state.target_route_id), None)
         if target_info:
@@ -202,10 +186,6 @@ with col_info:
             st.info(tr('Chưa có bản dịch; hiển thị nội dung tiếng Việt.', 'Translation unavailable; showing Vietnamese content.'))
         st.success(tr(f'🎯 **Hiện vật gần nhất:** {target["name"]}', f'🎯 **Nearest zone:** {target["name"]}'))
         st.markdown(tr(f'📏 **Khoảng cách:** `{target["distance_meters"]} mét`', f'📏 **Distance:** `{target["distance_meters"]} m`'))
-        tied = [localize(n, language, content_translations)['name'] for n in nearby if n['id'] != target['id'] and n.get('in_tie_group')]
-        if tied:
-            st.caption(tr(f'Cũng gần bạn tương đương: {", ".join(tied)}. Ưu tiên thuyết minh phân khu bạn chưa ghé.',
-                          f'Equally close: {", ".join(tied)}. Zones you have not visited are narrated first.'))
         st.write(target['description'])
         img_list = EXHIBIT_IMAGES.get(target["id"], [])
         valid_images = [img for img in img_list if os.path.exists(str(BASE / 'images' / img))]
