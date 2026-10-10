@@ -11,6 +11,27 @@ def resources():
     return (ThreadedConnectionPool(1, POOL_SIZE, **DB_CONFIG),
             BoundedSemaphore(POOL_SIZE))
 
+def _healthy_connection(pool, attempts=3):
+    """Lấy kết nối từ pool và kiểm tra còn sống không.
+
+    Neon tự tạm dừng (auto-suspend) khi không ai truy cập vài phút và cắt mọi kết nối;
+    kết nối cũ nằm trong pool sẽ báo "connection already closed". Kết nối hỏng thì bỏ đi
+    và mở kết nối mới (lần đầu Neon thức dậy có thể mất vài giây)."""
+    last_error = None
+    for _ in range(attempts):
+        conn = pool.getconn()
+        try:
+            if not conn.closed:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT 1')
+                conn.rollback()
+                return conn
+        except (psycopg2.InterfaceError, psycopg2.OperationalError) as exc:
+            last_error = exc
+        pool.putconn(conn, close=True)
+    raise last_error or psycopg2.InterfaceError('connection already closed')
+
+
 @contextmanager
 def database_cursor():
     pool, slots = resources()
@@ -18,7 +39,7 @@ def database_cursor():
         raise TimeoutError("Database is busy")
     conn = None
     try:
-        conn = pool.getconn()
+        conn = _healthy_connection(pool)
         with conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Chỉ áp dụng trong transaction hiện tại -> tương thích Neon pooler

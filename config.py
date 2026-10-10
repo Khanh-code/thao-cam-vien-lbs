@@ -20,6 +20,11 @@ DB_CONFIG = {
     # "prefer": dùng SSL nếu server hỗ trợ (Neon), vẫn chạy được với PostgreSQL local không bật SSL
     "sslmode": setting("postgres", "sslmode", "prefer"),
     "connect_timeout": 10,
+    # Giữ kết nối sống / phát hiện sớm khi Neon cắt kết nối lúc tự "ngủ"
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 3,
     # KHÔNG dùng "options" ở đây: Neon pooler (PgBouncer) từ chối tham số khởi động này.
     # Giới hạn thời gian truy vấn được đặt bằng SET LOCAL trong db_services.database_cursor().
 }

@@ -56,6 +56,7 @@ class FakeConnection:
     def __enter__(self): return self
     def __exit__(self, *args): pass
     def cursor(self, **kwargs): return FakeCursor()
+    def rollback(self): pass
 
 class FakePool:
     def __init__(self):
@@ -88,6 +89,26 @@ def test_concurrent_pool_and_error_release(monkeypatch):
     assert pool.returned == 30 and pool.active == 0
     with db.database_cursor():
         pass
+
+def test_stale_connection_is_replaced(monkeypatch):
+    """Neon tự ngủ -> kết nối cũ trong pool đã bị đóng: phải bỏ đi và lấy kết nối mới."""
+    import psycopg2
+    class DeadConnection(FakeConnection):
+        def cursor(self, **kwargs):
+            raise psycopg2.InterfaceError('connection already closed')
+    class StalePool(FakePool):
+        def __init__(self):
+            super().__init__(); self.calls = 0; self.closed_flags = []
+        def getconn(self):
+            super().getconn(); self.calls += 1
+            return DeadConnection() if self.calls == 1 else FakeConnection()
+        def putconn(self, conn, **kwargs):
+            super().putconn(conn); self.closed_flags.append(kwargs.get('close'))
+    pool = StalePool()
+    monkeypatch.setattr(db, 'resources', lambda: (pool, BoundedSemaphore(1)))
+    with db.database_cursor():
+        pass
+    assert pool.calls == 2 and pool.closed_flags[0] is True and pool.active == 0
 
 def test_pool_acquisition_failure_releases_slot(monkeypatch):
     class BrokenPool(FakePool):
