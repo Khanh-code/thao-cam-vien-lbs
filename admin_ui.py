@@ -6,7 +6,7 @@ import streamlit as st
 from auth import is_admin, login, logout, change_password, MIN_PASSWORD_LENGTH
 from config import setting
 from content import (LANGUAGES, translations, localize, save_translation, generated_audio, AudioError,
-                     save_with_auto_translation, check_translation)
+                     save_with_auto_translation, check_translation, is_unchanged, missing_translations)
 import translator
 import tracking
 
@@ -134,11 +134,21 @@ def _content_editor(exhibits, tr):
                                    help=tr('Bỏ tick nếu chỉ sửa lỗi chính tả tiếng Việt và không muốn ghi đè bản dịch đã chỉnh tay.',
                                            'Untick to keep manually edited translations.'))
             save = st.form_submit_button(tr('💾 Lưu & tạo giọng đọc', '💾 Save & generate voice'))
+        unchanged = save and is_unchanged(item, name, description)
+        todo = missing_translations(exhibit_id) if (save and auto) else []
+        if save and unchanged and not todo:
+            # Không có gì mới -> không lưu lại, không tạo lại giọng đọc / không dịch lại
+            save = False
+            st.info(tr('ℹ️ Nội dung **giống hệt** bản đang lưu nên không cần lưu lại. Hãy sửa tên hoặc thuyết minh rồi bấm Lưu.',
+                       'ℹ️ Nothing changed, so nothing was saved.'))
         if save:
             try:
                 with st.spinner(tr('Đang lưu, dịch và tạo giọng đọc...', 'Saving, translating and generating voice...')):
                     if auto:
-                        st.session_state['auto_results'] = (exhibit_id, save_with_auto_translation(exhibit_id, name, description))
+                        # Tiếng Việt không đổi -> chỉ dịch bổ sung ngôn ngữ còn thiếu
+                        results = save_with_auto_translation(exhibit_id, name, description, save_vi=not unchanged,
+                                                             languages=todo if unchanged else None)
+                        st.session_state['auto_results'] = (exhibit_id, results)
                     else:
                         review = None
                         if lang != 'vi':
@@ -153,9 +163,9 @@ def _content_editor(exhibits, tr):
                             'Could not generate the voice (Google TTS unreachable). Nothing was saved; please retry.'))
             except ValueError:
                 st.error(tr('Tên và nội dung thuyết minh không được để trống.', 'Name and narration are required.'))
-            except Exception:
+            except Exception as save_error:
                 logging.exception('Admin save failed')
-                st.error(tr('Không lưu được. Kiểm tra database (đã chạy neon_setup.sql chưa?).', 'Save failed. Check the database (run neon_setup.sql).'))
+                _explain_save_error(save_error, tr)
             else:
                 st.session_state['edit_saved'] = (exhibit_id, lang)
                 st.rerun()
@@ -190,6 +200,24 @@ def _content_editor(exhibits, tr):
             st.audio(str(Path(__file__).resolve().parent / 'audio' / item['audio_file']), format='audio/mp3')
         else:
             st.caption(tr('Chưa có giọng đọc cho ngôn ngữ này — bấm Lưu để tạo.', 'No narration for this language yet — click Save to create one.'))
+
+
+def _explain_save_error(error, tr):
+    """Báo rõ nguyên nhân lỗi lưu: thiếu migration nào, hay lỗi gì khác."""
+    from db_services import missing_schema
+    try:
+        missing = missing_schema()
+    except Exception:
+        missing = None
+    if missing:
+        items = ''.join(f'\n- {label} (migration {m})' for m, label in missing)
+        st.error(tr('Không lưu được vì database Neon **chưa được cập nhật**. Đang thiếu:' + items +
+                    '\n\n👉 Mở Neon → SQL Editor, dán **toàn bộ** file `neon_setup.sql` mới nhất rồi bấm **Run**, sau đó bấm Lưu lại.',
+                    'Save failed: the database is missing:' + items + '\n\nRun the latest neon_setup.sql in the Neon SQL Editor.'))
+    else:
+        st.error(tr('Không lưu được. Database đã đủ bảng, lỗi khác như sau:', 'Save failed with this error:'))
+    with st.expander(tr('Chi tiết lỗi', 'Error details')):
+        st.code(f'{type(error).__name__}: {str(error).strip()[:800]}')
 
 
 def _glossary_editor(tr):

@@ -124,3 +124,24 @@ def get_shortest_path(user_lat: float, user_lng: float, target_lat: float, targe
         cur.execute(query, (user_lng, user_lat, target_lng, target_lat))
         rows = cur.fetchall()
         return rows
+
+
+# Các phần database mà từng migration tạo ra -> dùng để báo admin đang thiếu migration nào
+SCHEMA_CHECKS = [
+    ('001', 'bảng exhibit_translations', "SELECT to_regclass('public.exhibit_translations') IS NOT NULL"),
+    ('003', 'bảng admin_users / visitors', "SELECT to_regclass('public.admin_users') IS NOT NULL AND to_regclass('public.visitors') IS NOT NULL"),
+    ('004', 'cột audio_data (giọng đọc)', "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='exhibit_translations' AND column_name='audio_data')"),
+    ('004', 'cho phép ngôn ngữ zh (tiếng Trung)', "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='exhibit_translations_language_check' AND pg_get_constraintdef(oid) LIKE '%zh%')"),
+    ('006', 'cột kiểm tra bản dịch + bảng glossary', "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='exhibit_translations' AND column_name='quality') AND to_regclass('public.glossary') IS NOT NULL"),
+]
+
+
+def missing_schema():
+    """Trả về danh sách (migration, mô tả) còn thiếu trên database đang kết nối."""
+    missing = []
+    with database_cursor() as cur:
+        for migration, label, sql in SCHEMA_CHECKS:
+            cur.execute(sql)
+            if not list(cur.fetchone().values())[0]:
+                missing.append((migration, label))
+    return missing

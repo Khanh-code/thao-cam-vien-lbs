@@ -177,13 +177,32 @@ def check_translation(language, description):
     return {'machine_translated': False, 'back_translation': back, 'quality': None}
 
 
-def save_with_auto_translation(exhibit_id, name_vi, description_vi):
-    """Lưu bản tiếng Việt rồi TỰ DỊCH sang Anh + Trung (có bảng thuật ngữ + dịch ngược để kiểm tra).
-    Trả về {lang: kết quả kiểm tra hoặc {'error': ...}}. Bản tiếng Việt luôn được lưu trước."""
+def _norm(text):
+    """Chuẩn hoá để so sánh: bỏ khoảng trắng thừa, thống nhất cách gõ dấu tiếng Việt."""
+    import unicodedata
+    return ' '.join(unicodedata.normalize('NFC', text or '').split())
+
+
+def is_unchanged(current, name, description):
+    """True nếu tên + thuyết minh admin vừa nhập giống hệt bản đang lưu (chỉ khác khoảng trắng)."""
+    return _norm(current.get('name')) == _norm(name) and _norm(current.get('description')) == _norm(description)
+
+
+def missing_translations(exhibit_id):
+    """Các ngôn ngữ (en, zh) chưa có bản dịch lưu trong database cho phân khu này."""
     import translator
-    save_translation(exhibit_id, 'vi', name_vi, description_vi)
+    return [lang for lang in translator.TARGETS if exhibit_id not in translations(lang)]
+
+
+def save_with_auto_translation(exhibit_id, name_vi, description_vi, save_vi=True, languages=None):
+    """Lưu bản tiếng Việt rồi TỰ DỊCH sang Anh + Trung (có bảng thuật ngữ + dịch ngược để kiểm tra).
+    Trả về {lang: kết quả kiểm tra hoặc {'error': ...}}. Bản tiếng Việt luôn được lưu trước.
+    save_vi=False / languages=[...]: chỉ dịch bổ sung các ngôn ngữ còn thiếu (tiếng Việt không đổi)."""
+    import translator
+    if save_vi:
+        save_translation(exhibit_id, 'vi', name_vi, description_vi)
     results = {}
-    for lang in translator.TARGETS:
+    for lang in (translator.TARGETS if languages is None else languages):
         try:
             name, _ = translator.translate(name_vi.strip(), 'vi', lang)
             checked = translator.translate_with_review(description_vi.strip(), lang)

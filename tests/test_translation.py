@@ -128,3 +128,33 @@ def test_glossary_saved_in_database(monkeypatch):
     assert translator.save_glossary(rows) == len(before) + 1
     assert any(t['vi'] == 'chim công' for t in translator.glossary())
     translator.save_glossary(before)
+
+
+def test_unchanged_content_is_detected():
+    current = {'name': 'Khu Bò Sát', 'description': 'Trăn và cá sấu.'}
+    assert content.is_unchanged(current, '  Khu Bò Sát ', 'Trăn  và cá sấu.\n')
+    # Cùng chữ nhưng gõ dấu kiểu khác (tổ hợp) vẫn coi là giống
+    import unicodedata
+    assert content.is_unchanged(current, unicodedata.normalize('NFD', 'Khu Bò Sát'), 'Trăn và cá sấu.')
+    assert not content.is_unchanged(current, 'Khu Bò Sát', 'Trăn, rắn và cá sấu.')
+
+
+@needs_db
+def test_admin_ui_skips_unchanged_save(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    calls = []
+    monkeypatch.setattr(content, 'synthesize', lambda t, l: calls.append(l) or FAKE_MP3)
+    monkeypatch.setattr(translator, '_engine', fake_engine)
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=60).run()
+    inp = lambda label: next(t for t in app.sidebar.text_input if t.label == label)
+    inp('Tài khoản').input('admin'); inp('Mật khẩu').input('123456')
+    next(b for b in app.sidebar.button if 'Đăng nhập' in b.label).click().run()
+    import uuid
+    text = SOURCE + ' ' + uuid.uuid4().hex[:6]                       # nội dung mới chưa từng lưu
+    app.text_area[0].input(text)
+    next(b for b in app.button if 'Lưu & tạo' in b.label).click().run()
+    assert not app.exception and sorted(calls) == ['en', 'vi', 'zh']
+    calls.clear()
+    next(b for b in app.button if 'Lưu & tạo' in b.label).click().run()   # bấm Lưu lại, không sửa gì
+    assert calls == []                                                      # không tạo lại giọng đọc / không dịch lại
+    assert any('giống hệt' in i.value for i in app.info)
