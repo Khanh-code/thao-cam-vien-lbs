@@ -5,18 +5,18 @@ from pathlib import Path
 import streamlit as st
 from auth import is_admin, login, logout, change_password, MIN_PASSWORD_LENGTH
 from config import setting
-from content import LANGUAGES, translations, localize, save_translation, valid_audio
+from content import LANGUAGES, translations, localize, save_translation, generated_audio, AudioError
 import tracking
 
 PUBLIC_URL = str(setting('app', 'public_url', 'https://hdvthaocamvien.streamlit.app/'))
 
 
 def render_admin(exhibits, language):
-    def tr(vi, en):
-        return vi if language == 'vi' else en
+    def tr(vi, en, zh=None):
+        return {'vi': vi, 'zh': zh or en}.get(language, en)
 
-    st.sidebar.caption(tr('Vai trò: ', 'Role: ') + ('Admin' if is_admin() else tr('Khách', 'Guest')))
-    with st.sidebar.expander(tr('Quản trị', 'Administration'), expanded=is_admin()):
+    st.sidebar.caption(tr('Vai trò: ', 'Role: ', '角色：') + ('Admin' if is_admin() else tr('Khách', 'Guest', '游客')))
+    with st.sidebar.expander(tr('Quản trị', 'Administration', '管理'), expanded=is_admin()):
         if is_admin():
             st.write(tr('Đang đăng nhập: ', 'Signed in as: ') + f"**{st.session_state.get('admin_user', 'admin')}**")
             c1, c2 = st.columns(2)
@@ -32,9 +32,9 @@ def render_admin(exhibits, language):
                 _change_password_form(tr)
         else:
             with st.form('login_admin', clear_on_submit=True):
-                username = st.text_input(tr('Tài khoản', 'Username'), max_chars=100)
-                password = st.text_input(tr('Mật khẩu', 'Password'), type='password', max_chars=512)
-                submit = st.form_submit_button(tr('Đăng nhập admin', 'Admin sign in'))
+                username = st.text_input(tr('Tài khoản', 'Username', '账号'), max_chars=100)
+                password = st.text_input(tr('Mật khẩu', 'Password', '密码'), type='password', max_chars=512)
+                submit = st.form_submit_button(tr('Đăng nhập admin', 'Admin sign in', '管理员登录'))
             if submit:
                 ok = False
                 if time.time() >= st.session_state.get('login_retry_at', 0):
@@ -46,7 +46,7 @@ def render_admin(exhibits, language):
                     st.rerun()
                 else:
                     st.session_state['login_retry_at'] = time.time() + 3
-                    st.warning(tr('Đăng nhập thất bại. Thử lại sau.', 'Sign in failed. Retry later.'))
+                    st.warning(tr('Đăng nhập thất bại. Thử lại sau.', 'Sign in failed. Retry later.', '登录失败，请稍后再试。'))
 
     if not is_admin():
         return
@@ -90,8 +90,8 @@ def _change_password_form(tr):
 
 def _content_editor(exhibits, tr):
     with st.expander(tr('✏️ Biên tập nội dung', '✏️ Edit content')):
-        st.caption(tr('Chọn phân khu và ngôn ngữ để cập nhật thuyết minh. Âm thanh phải khớp nội dung.',
-                      'Choose a zone and language to update its narration. Audio should match the text.'))
+        st.caption(tr('Chọn phân khu và ngôn ngữ, sửa nội dung rồi bấm Lưu. Hệ thống sẽ tự tạo giọng đọc đúng theo đoạn thuyết minh.',
+                      'Choose a zone and language, edit the text and click Save. A matching voice narration is generated automatically.'))
         options = {x['id']: x['name'] for x in exhibits}
         exhibit_id = st.selectbox(tr('Phân khu', 'Zone'), list(options), format_func=options.get, key='edit_id')
         lang = st.selectbox(tr('Ngôn ngữ nội dung', 'Content language'), list(LANGUAGES), format_func=LANGUAGES.get, key='edit_lang')
@@ -99,22 +99,37 @@ def _content_editor(exhibits, tr):
         item = localize(original, lang, translations(lang))
         with st.form(f'edit_{exhibit_id}_{lang}'):
             name = st.text_input(tr('Tên phân khu', 'Zone name'), item['name'], max_chars=300)
-            description = st.text_area(tr('Thuyết minh', 'Narration text'), item['description'] or '', max_chars=20000)
-            existing = item.get('audio_file') or ''
-            audio = st.text_input(tr('Audio: vi/voi.mp3 hoặc en/elephants.mp3', 'Audio: vi/voi.mp3 or en/elephants.mp3'),
-                                  existing if '/' in existing else '')
-            save = st.form_submit_button(tr('Lưu', 'Save'))
+            description = st.text_area(tr('Thuyết minh (nội dung sẽ được đọc thành audio)', 'Narration (this text will be read aloud)'),
+                                       item['description'] or '', max_chars=5000, height=160)
+            save = st.form_submit_button(tr('💾 Lưu & tạo giọng đọc', '💾 Save & generate voice'))
         if save:
-            if not valid_audio(audio, lang) or (audio and not (Path(__file__).resolve().parent / 'audio' / audio).is_file()):
-                st.error(tr('Đường dẫn audio không hợp lệ hoặc file chưa được triển khai.', 'Invalid audio path or file has not been deployed.'))
-                return
             try:
-                save_translation(exhibit_id, lang, name, description, audio)
+                with st.spinner(tr('Đang tạo giọng đọc...', 'Generating voice...')):
+                    save_translation(exhibit_id, lang, name, description)
+            except AudioError:
+                logging.exception('Text-to-speech failed')
+                st.error(tr('Không tạo được giọng đọc (không kết nối được Google TTS). Nội dung CHƯA được lưu, hãy thử lại.',
+                            'Could not generate the voice (Google TTS unreachable). Nothing was saved; please retry.'))
+            except ValueError:
+                st.error(tr('Tên và nội dung thuyết minh không được để trống.', 'Name and narration are required.'))
             except Exception:
                 logging.exception('Admin save failed')
-                st.error(tr('Không lưu được. Kiểm tra dữ liệu và database.', 'Save failed. Check inputs and database.'))
+                st.error(tr('Không lưu được. Kiểm tra database (đã chạy migration 004 chưa?).', 'Save failed. Check the database (migration 004).'))
             else:
+                st.session_state['edit_saved'] = (exhibit_id, lang)
                 st.rerun()
+        if st.session_state.get('edit_saved') == (exhibit_id, lang):
+            st.success(tr('✅ Đã lưu và tạo giọng đọc mới.', '✅ Saved with a new voice narration.'))
+        # Nghe thử audio hiện tại của phân khu / ngôn ngữ đang chọn
+        current = generated_audio(*item['audio_key']) if item.get('audio_key') else None
+        if current:
+            st.caption(tr('🎧 Giọng đọc hiện tại (tự tạo):', '🎧 Current narration (generated):'))
+            st.audio(current, format='audio/mp3')
+        elif item.get('audio_file') and (Path(__file__).resolve().parent / 'audio' / item['audio_file']).is_file():
+            st.caption(tr('🎧 Giọng đọc hiện tại (file gốc):', '🎧 Current narration (original file):'))
+            st.audio(str(Path(__file__).resolve().parent / 'audio' / item['audio_file']), format='audio/mp3')
+        else:
+            st.caption(tr('Chưa có giọng đọc cho ngôn ngữ này — bấm Lưu để tạo.', 'No narration for this language yet — click Save to create one.'))
 
 
 def _visitor_stats(tr):

@@ -1,0 +1,30 @@
+{
+  "Khu Thú Ăn Thịt": {
+    "name": "食肉动物区",
+    "description": "这里饲养和保护狮子、孟加拉白虎、印度支那虎和豹等凶猛的食肉动物。"
+  },
+  "Khu Chuồng Voi": {
+    "name": "大象馆",
+    "description": "大象生活在宽敞的围场中，靠近河边的长颈鹿区。"
+  },
+  "Khu Vực Linh Trưởng & Thú Nhỏ": {
+    "name": "灵长类与小型动物区",
+    "description": "这里是猴子、长臂猿和许多活泼的小型动物的家园。"
+  },
+  "Khu Bò Sát": {
+    "name": "爬行动物区",
+    "description": "在这里可以看到蟒蛇、各种蛇类、鳄鱼和热带龟。"
+  },
+  "Vườn Lan & Xương Rồng": {
+    "name": "兰花与仙人掌园",
+    "description": "位于主舞台左侧，绿意盎然，是热门的拍照地点。"
+  },
+  "Khu Vui Chơi Giải Trí (Đu Quay)": {
+    "name": "游乐区",
+    "description": "这里有游乐设施和供儿童进行户外活动的场地。"
+  },
+  "Khu Vui Chơi Giải Trí": {
+    "name": "游乐区",
+    "description": "这里有游乐设施和供儿童进行户外活动的场地。"
+  }
+}

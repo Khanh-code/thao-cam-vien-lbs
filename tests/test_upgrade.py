@@ -26,7 +26,7 @@ def test_password_hash_and_invalid_credentials():
 def test_guest_cannot_save(monkeypatch):
     monkeypatch.setattr(auth, 'is_admin', lambda: False)
     with pytest.raises(PermissionError):
-        content.save_translation(1, 'en', 'Elephants', 'Text', '')
+        content.save_translation(1, 'en', 'Elephants', 'Text')
 
 def test_translation_does_not_mutate_shared_data():
     raw = {'id': 1, 'name': 'Voi', 'description': 'Nội dung', 'audio_file': 'voi.mp3'}

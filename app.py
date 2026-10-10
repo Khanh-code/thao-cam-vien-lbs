@@ -2,7 +2,7 @@ from pathlib import Path
 import logging
 import html
 from admin_ui import render_admin
-from content import LANGUAGES, translations, localize
+from content import LANGUAGES, translations, localize, generated_audio, auto_voice
 BASE = Path(__file__).resolve().parent
 import json
 import os
@@ -18,14 +18,15 @@ def database_read(operation, *args, **kwargs):
         return operation(*args, **kwargs)
     except Exception:
         logging.exception('Spatial query failed')
-        st.error(tr('Truy vấn đang bận hoặc gặp lỗi. Vui lòng thử lại.', 'Query is busy or failed. Please retry.'))
+        st.error(tr('Truy vấn đang bận hoặc gặp lỗi. Vui lòng thử lại.', 'Query is busy or failed. Please retry.', '查询繁忙或出错，请重试。'))
         st.stop()
 st.set_page_config(page_title='Hệ Thống Hướng Dẫn Viên Du Lịch - Thảo Cầm Viên', page_icon='🌿', layout='wide')
 language = st.sidebar.selectbox('Ngôn ngữ / Language', list(LANGUAGES), format_func=LANGUAGES.get)
-def tr(vi, en):
-    return vi if language == 'vi' else en
+def tr(vi, en, zh=None):
+    # Chuỗi giao diện theo ngôn ngữ đang chọn (thiếu tiếng Trung -> dùng tiếng Anh)
+    return {'vi': vi, 'zh': zh or en}.get(language, en)
 
-st.title(tr('Hệ Thống Hướng Dẫn Viên Du Lịch Ngoài Trời - Thảo Cầm Viên', 'Saigon Zoo Visitor Guide'))
+st.title(tr('Hệ Thống Hướng Dẫn Viên Du Lịch Ngoài Trời - Thảo Cầm Viên', 'Saigon Zoo Visitor Guide', '西贡动植物园户外导览系统'))
 try:
     raw_exhibits = get_all_exhibits()
     content_translations = translations(language)
@@ -33,15 +34,15 @@ try:
     all_walkways = get_all_walkways()
 except Exception as load_error:
     logging.exception('Database load failed')
-    st.error(tr('Không thể tải dữ liệu. Kiểm tra database và chạy migration.', 'Cannot load data. Check database configuration and run the migration.'))
-    with st.expander(tr('Chi tiết lỗi', 'Error details')):
+    st.error(tr('Không thể tải dữ liệu. Kiểm tra database và chạy migration.', 'Cannot load data. Check database configuration and run the migration.', '无法加载数据。请检查数据库并运行迁移。'))
+    with st.expander(tr('Chi tiết lỗi', 'Error details', '错误详情')):
         st.code(f'{type(load_error).__name__}: {str(load_error).strip()[:500]}')
     st.stop()
 if not all_exhibits:
-    st.info(tr('Database chưa có phân khu.', 'No zones in the database.'))
+    st.info(tr('Database chưa có phân khu.', 'No zones in the database.', '数据库中没有展区。'))
     st.stop()
 render_admin(raw_exhibits, language)
-st.sidebar.caption(tr('Vị trí mô phỏng bằng bấm bản đồ; chưa kết nối GPS thiết bị.', 'Position is simulated by map clicks; device GPS is not connected.'))
+st.sidebar.caption(tr('Vị trí mô phỏng bằng bấm bản đồ; chưa kết nối GPS thiết bị.', 'Position is simulated by map clicks; device GPS is not connected.', '位置通过点击地图模拟；尚未连接设备 GPS。'))
 if 'user_lat' not in st.session_state:
     st.session_state.user_lat = 10.78775
 if 'user_lng' not in st.session_state:
@@ -91,13 +92,13 @@ else:
         if visitor_id:
             tracking_call(tracking.mark_visited, visitor_id, target_raw['id'])
 with st.sidebar:
-    st.header(tr('🎮 Bảng Điều Khiển', '🎮 Controls'))
-    st.subheader(tr('1. Tìm kiếm vị trí', '1. Search places'))
-    keyword = st.text_input(tr('Gõ tên hoặc đặc điểm:', 'Name or description:'), placeholder=tr('voi, hổ, bò sát, vườn lan...', 'elephants, tigers, orchids...'))
+    st.header(tr('🎮 Bảng Điều Khiển', '🎮 Controls', '🎮 控制面板'))
+    st.subheader(tr('1. Tìm kiếm vị trí', '1. Search places', '1. 搜索地点'))
+    keyword = st.text_input(tr('Gõ tên hoặc đặc điểm:', 'Name or description:', '名称或特征：'), placeholder=tr('voi, hổ, bò sát, vườn lan...', 'elephants, tigers, orchids...', '大象、老虎、兰花...'))
     if keyword:
         results = [item for item in all_exhibits if keyword.lower() in item["name"].lower() or keyword.lower() in item['description'].lower()]
         if results:
-            st.write(tr(f'Kết quả tìm kiếm ({len(results)}):', f'Search results ({len(results)}):'))
+            st.write(tr(f'Kết quả tìm kiếm ({len(results)}):', f'Search results ({len(results)}):', f'搜索结果（{len(results)}）：'))
             for r in results:
                 if st.button(r["name"], key=f'search_{r["id"]}', use_container_width=True):
                     st.session_state.user_lat = r['lat']
@@ -106,9 +107,9 @@ with st.sidebar:
                     st.session_state.target_route_id = None
                     st.rerun()
         else:
-            st.warning(tr('Không tìm thấy kết quả.', 'No results found.'))
+            st.warning(tr('Không tìm thấy kết quả.', 'No results found.', '未找到结果。'))
     st.markdown('---')
-    st.subheader(tr('2. Chọn Nhanh Phân Khu', '2. Choose a zone'))
+    st.subheader(tr('2. Chọn Nhanh Phân Khu', '2. Choose a zone', '2. 快速选择展区'))
     for item in all_exhibits:
         if st.button(item["name"], key=f'select_{item["id"]}', use_container_width=True):
             st.session_state.user_lat = item['lat']
@@ -117,33 +118,33 @@ with st.sidebar:
             st.session_state.target_route_id = None
             st.rerun()
     st.markdown('---')
-    st.subheader(tr('🚶 Dẫn Đường Đi Bộ', '🚶 Walking directions'))
+    st.subheader(tr('🚶 Dẫn Đường Đi Bộ', '🚶 Walking directions', '🚶 步行导航'))
     route_options = {item["id"]: item["name"] for item in all_exhibits}
-    selected_target = st.selectbox(tr('Chọn địa điểm muốn đến:', 'Choose a destination:'), options=list(route_options.keys()), format_func=lambda x: route_options[x])
+    selected_target = st.selectbox(tr('Chọn địa điểm muốn đến:', 'Choose a destination:', '选择目的地：'), options=list(route_options.keys()), format_func=lambda x: route_options[x])
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
-        if st.button(tr('🗺️ Tìm đường', '🗺️ Find route'), use_container_width=True):
+        if st.button(tr('🗺️ Tìm đường', '🗺️ Find route', '🗺️ 查找路线'), use_container_width=True):
             st.session_state.target_route_id = selected_target
             st.rerun()
     with col_btn2:
-        if st.button(tr('❌ Xóa đường', '❌ Clear route'), use_container_width=True):
+        if st.button(tr('❌ Xóa đường', '❌ Clear route', '❌ 清除路线'), use_container_width=True):
             st.session_state.target_route_id = None
             st.rerun()
-    st.caption(tr('Bán kính phát hiện GPS: **50 mét**', 'Detection radius: **50 metres**'))
+    st.caption(tr('Bán kính phát hiện GPS: **50 mét**', 'Detection radius: **50 metres**', '检测半径：**50 米**'))
 col_map, col_info = st.columns([7, 5])
 with col_map:
-    st.subheader(tr('📍 Bản đồ Thảo Cầm Viên', '📍 Saigon Zoo Map'))
+    st.subheader(tr('📍 Bản đồ Thảo Cầm Viên', '📍 Saigon Zoo Map', '📍 西贡动植物园地图'))
     fmap = folium.Map(location=[st.session_state.user_lat, st.session_state.user_lng], zoom_start=18, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', attr='Esri')
     for w in all_walkways:
         if w.get('geom_json'):
             w_geo = json.loads(w['geom_json'])
             w_coords = [(pt[1], pt[0]) for pt in w_geo['coordinates']]
-            folium.PolyLine(w_coords, color='#7f8c8d', weight=3, opacity=0.6, tooltip=tr(f'Lối đi bộ: {w["name"]}', f'Walkway: {w["name"]}')).add_to(fmap)
+            folium.PolyLine(w_coords, color='#7f8c8d', weight=3, opacity=0.6, tooltip=tr(f'Lối đi bộ: {w["name"]}', f'Walkway: {w["name"]}', f'步行道：{w["name"]}')).add_to(fmap)
     for item in all_exhibits:
         color = COLOR_PALETTE.get(next(x["name"] for x in raw_exhibits if x["id"] == item["id"]), '#3388ff')
         if item.get('poly_geojson'):
             geo_data = json.loads(item['poly_geojson'])
-            folium.GeoJson(geo_data, name=tr(f'Ranh giới: {item["name"]}', f'Boundary: {item["name"]}'), style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 2, 'fillOpacity': 0.35}, tooltip=f'<b>{item["name"]}</b>').add_to(fmap)
+            folium.GeoJson(geo_data, name=tr(f'Ranh giới: {item["name"]}', f'Boundary: {item["name"]}', f'边界：{item["name"]}'), style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 2, 'fillOpacity': 0.35}, tooltip=f'<b>{item["name"]}</b>').add_to(fmap)
         folium.Marker(location=[item['lat'], item['lng']], tooltip=html.escape(item["name"]), popup=html.escape(item["name"]), icon=folium.Icon(color='green', icon='leaf', prefix='fa')).add_to(fmap)
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item["id"] == st.session_state.target_route_id), None)
@@ -162,11 +163,11 @@ with col_map:
                 target_pt = (target_info['lat'], target_info['lng'])
                 if full_walk_path[-1] != target_pt:
                     full_walk_path.append(target_pt)
-                folium.PolyLine(full_walk_path, color='#0055FF', weight=6, opacity=0.9, dash_array='8, 10', tooltip=tr(f'Lộ trình đi bộ đến {target_info["name"]}', f'Walking route to {target_info["name"]}')).add_to(fmap)
-                st.info(tr(f'🚶 **Lộ trình đi bộ đến:** {target_info["name"]} (Cự ly ước tính: ~{int(total_distance)} mét)', f'🚶 **Walking route to:** {target_info["name"]} (Network distance: ~{int(total_distance)} m)'))
+                folium.PolyLine(full_walk_path, color='#0055FF', weight=6, opacity=0.9, dash_array='8, 10', tooltip=tr(f'Lộ trình đi bộ đến {target_info["name"]}', f'Walking route to {target_info["name"]}', f'前往 {target_info["name"]} 的步行路线')).add_to(fmap)
+                st.info(tr(f'🚶 **Lộ trình đi bộ đến:** {target_info["name"]} (Cự ly ước tính: ~{int(total_distance)} mét)', f'🚶 **Walking route to:** {target_info["name"]} (Network distance: ~{int(total_distance)} m)', f'🚶 **步行前往：** {target_info["name"]}（路程约 {int(total_distance)} 米）'))
             else:
-                st.warning(tr('Không tìm thấy đường đi bộ liên thông đến địa điểm này!', 'No connected walking route found.'))
-    folium.Marker(location=[st.session_state.user_lat, st.session_state.user_lng], tooltip=tr('Vị trí của bạn', 'Your position'), icon=folium.Icon(color='red', icon='user', prefix='fa')).add_to(fmap)
+                st.warning(tr('Không tìm thấy đường đi bộ liên thông đến địa điểm này!', 'No connected walking route found.', '未找到可通行的步行路线！'))
+    folium.Marker(location=[st.session_state.user_lat, st.session_state.user_lng], tooltip=tr('Vị trí của bạn', 'Your position', '您的位置'), icon=folium.Icon(color='red', icon='user', prefix='fa')).add_to(fmap)
     folium.Circle(location=[st.session_state.user_lat, st.session_state.user_lng], radius=50, color='#1a73e8', fill=True, fill_color='#4285f4', fill_opacity=0.2).add_to(fmap)
     map_out = st_folium(fmap, width='100%', height=560, returned_objects=['last_clicked'])
     if map_out and map_out.get('last_clicked'):
@@ -178,14 +179,14 @@ with col_map:
             st.session_state.img_index = 0
             st.rerun()
 with col_info:
-    st.subheader(tr('🎧 Hướng Dẫn Viên Thuyết Minh', '🎧 Visitor information'))
-    st.markdown(tr(f'**Tọa độ hiện tại:** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`', f'**Current coordinates:** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`'))
+    st.subheader(tr('🎧 Hướng Dẫn Viên Thuyết Minh', '🎧 Visitor information', '🎧 语音导览'))
+    st.markdown(tr(f'**Tọa độ hiện tại:** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`', f'**Current coordinates:** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`', f'**当前坐标：** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`'))
     if target_raw:
         target = localize(target_raw, language, content_translations)
         if not target['translated']:
-            st.info(tr('Chưa có bản dịch; hiển thị nội dung tiếng Việt.', 'Translation unavailable; showing Vietnamese content.'))
-        st.success(tr(f'🎯 **Hiện vật gần nhất:** {target["name"]}', f'🎯 **Nearest zone:** {target["name"]}'))
-        st.markdown(tr(f'📏 **Khoảng cách:** `{target["distance_meters"]} mét`', f'📏 **Distance:** `{target["distance_meters"]} m`'))
+            st.info(tr('Chưa có bản dịch; hiển thị nội dung tiếng Việt.', 'Translation unavailable; showing Vietnamese content.', '暂无中文翻译，显示越南语内容。'))
+        st.success(tr(f'🎯 **Hiện vật gần nhất:** {target["name"]}', f'🎯 **Nearest zone:** {target["name"]}', f'🎯 **最近的展区：** {target["name"]}'))
+        st.markdown(tr(f'📏 **Khoảng cách:** `{target["distance_meters"]} mét`', f'📏 **Distance:** `{target["distance_meters"]} m`', f'📏 **距离：** `{target["distance_meters"]} 米`'))
         st.write(target['description'])
         img_list = EXHIBIT_IMAGES.get(target["id"], [])
         valid_images = [img for img in img_list if os.path.exists(str(BASE / 'images' / img))]
@@ -195,20 +196,27 @@ with col_info:
             st.image(current_img_path, caption=f'{target["name"]} ({idx + 1}/{len(valid_images)})', use_container_width=True)
             c_prev, c_txt, c_next = st.columns([1, 2, 1])
             with c_prev:
-                if st.button(tr('◀ Trước', '◀ Previous'), key='btn_img_prev', use_container_width=True):
+                if st.button(tr('◀ Trước', '◀ Previous', '◀ 上一张'), key='btn_img_prev', use_container_width=True):
                     st.session_state.img_index = (idx - 1) % len(valid_images)
                     st.rerun()
             with c_next:
-                if st.button(tr('Sau ▶', 'Next ▶'), key='btn_img_next', use_container_width=True):
+                if st.button(tr('Sau ▶', 'Next ▶', '下一张 ▶'), key='btn_img_next', use_container_width=True):
                     st.session_state.img_index = (idx + 1) % len(valid_images)
                     st.rerun()
         else:
-            st.info(tr('💡 Đặt các file ảnh (.jpg) vào thư mục `images/` để hiển thị.', 'No pictures are available.'))
+            st.info(tr('💡 Đặt các file ảnh (.jpg) vào thư mục `images/` để hiển thị.', 'No pictures are available.', '暂无图片。'))
         audio_file = str((BASE / 'audio' / (target.get('audio_file') or '')).resolve())
-        if Path(audio_file).is_relative_to((BASE / 'audio').resolve()) and Path(audio_file).is_file() and Path(audio_file).suffix.lower() == '.mp3':
+        voice = tracking_call(generated_audio, *target['audio_key']) if target.get('audio_key') else None
+        if voice:
+            # Giọng đọc tự tạo khi admin lưu nội dung (lưu trong database)
+            st.audio(voice, format='audio/mp3', autoplay=True)
+        elif Path(audio_file).is_relative_to((BASE / 'audio').resolve()) and Path(audio_file).is_file() and Path(audio_file).suffix.lower() == '.mp3':
             st.audio(audio_file, format='audio/mp3', autoplay=True)
+        elif target['translated'] and target.get('description') and (voice := tracking_call(auto_voice, target['description'], language)):
+            # Chưa có audio cho ngôn ngữ này (vd. tiếng Trung) -> tự đọc nội dung đang hiển thị
+            st.audio(voice, format='audio/mp3', autoplay=True)
         else:
-            st.warning(tr('Đang chuẩn bị file âm thanh...', 'No narration available in this language.'))
+            st.warning(tr('Đang chuẩn bị file âm thanh...', 'No narration available in this language.', '该语言暂无语音导览。'))
     else:
-        st.info(tr('🚶 Không có phân khu nào trong bán kính 50m. Hãy click vào các biểu tượng màu xanh lá trên bản đồ hoặc chọn ở danh mục bên trái!', '🚶 No zone within 50 m. Click the map or select a zone in the sidebar.'))
+        st.info(tr('🚶 Không có phân khu nào trong bán kính 50m. Hãy click vào các biểu tượng màu xanh lá trên bản đồ hoặc chọn ở danh mục bên trái!', '🚶 No zone within 50 m. Click the map or select a zone in the sidebar.', '🚶 50 米范围内没有展区。请点击地图或在左侧选择展区！'))
 

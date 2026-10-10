@@ -85,7 +85,8 @@ Toàn bộ mã nguồn được tái cấu trúc thành 3 module chuyên biệt 
 
 ## 🆕 5. CHỨC NĂNG BỔ SUNG (BẢN NÂNG CẤP)
 
-* **Đa ngôn ngữ Việt / Anh**: chọn ngôn ngữ ở đầu thanh bên trái. Toàn bộ giao diện, tên phân khu, thuyết minh và audio (`audio/en/`) đổi theo ngôn ngữ. Phân khu chưa có bản dịch sẽ báo và hiển thị tiếng Việt, không phát nhầm audio tiếng Việt khi đang chọn tiếng Anh.
+* **Đa ngôn ngữ Việt / Anh / Trung (中文)**: chọn ngôn ngữ ở đầu thanh bên trái. Giao diện khách, tên phân khu và thuyết minh đổi theo ngôn ngữ (bản dịch có sẵn trong `english_content.json`, `chinese_content.json`; bản admin sửa lưu trong database được ưu tiên). Phân khu chưa có bản dịch sẽ báo và hiển thị tiếng Việt, không phát nhầm audio tiếng Việt.
+* **Giọng đọc tự động (gTTS)**: admin sửa nội dung thuyết minh và bấm **💾 Lưu & tạo giọng đọc** → hệ thống đọc đúng đoạn văn đó thành MP3 (tiếng Việt `vi`, Anh `en`, Trung `zh-CN`) và lưu vào cột `exhibit_translations.audio_data` (bytea) trên database, không cần tạo/upload file. Nếu tạo giọng đọc thất bại thì không lưu gì để audio luôn khớp nội dung. Nội dung chưa có audio (vd. bản dịch tiếng Trung có sẵn) được tự đọc khi khách đến gần và lưu trong bộ nhớ đệm của server.
 * **Phân quyền Admin / Khách**: khách dùng ngay không cần đăng nhập. Admin đăng nhập trong mục *Quản trị* để biên tập tên, thuyết minh và đường dẫn audio của từng phân khu theo từng ngôn ngữ (bảng `exhibit_translations`).
   * Tài khoản admin lưu trong bảng `admin_users`, **mặc định `admin` / `123456`**. Khi còn dùng mật khẩu mặc định, app hiện cảnh báo nhắc đổi.
   * Nút **🔑 Đổi mật khẩu**: nhập mật khẩu hiện tại + mật khẩu mới (≥ 6 ký tự, nhập lại 2 lần). Mật khẩu lưu dạng hash PBKDF2-SHA256 có salt, phiên admin hết hạn sau 1 giờ, quyền được kiểm tra lại ở tầng dịch vụ (`require_admin`).
@@ -132,7 +133,7 @@ Toàn bộ mã nguồn được tái cấu trúc thành 3 module chuyên biệt 
    [visitor]
    reset_period = "day"   # hoặc "week"
    ```
-4. **Chạy migration** (tạo bảng bản dịch, index, tài khoản admin mặc định và các bảng khách tạm; chạy lại nhiều lần vẫn an toàn):
+4. **Chạy migration** (tạo bảng bản dịch, index, tài khoản admin mặc định, các bảng khách tạm và cột giọng đọc; chạy lại nhiều lần vẫn an toàn). Trên Neon có thể dán file `neon_setup.sql` vào SQL Editor thay cho lệnh này:
    ```bash
    python run_migrations.py
    ```
