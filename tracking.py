@@ -67,6 +67,10 @@ def nearby_for_visitor(visitor_id, lat, lng, radius=50.0, tie_metres=None):
     - Lọc các phân khu trong bán kính bằng ST_DWithin (dùng index GiST biểu thức của migration 001).
     - Nhóm "gần nhất": các phân khu cách xa hơn phân khu gần nhất không quá tie_metres.
     - Trong nhóm đó, phân khu khách CHƯA ghé (không có trong exhibit_visits) được xếp lên trước.
+    - Nếu vẫn ngang nhau (vd. cả hai đều chưa ghé): ưu tiên khu nằm BÊN PHẢI hướng khách đang đi.
+      Hướng đi = ST_Azimuth từ điểm lưu vết trước đó tới vị trí hiện tại. Chưa có hướng đi
+      (khách mới vào) thì coi như đang nhìn về hướng bắc -> bên phải là phía đông của bản đồ.
+      right_score = sin(góc tới khu - hướng đi): > 0 là bên phải, càng gần 1 càng ở ngay bên phải.
     - Còn lại xếp theo khoảng cách tăng dần.
     """
     tie = TIE_METRES if tie_metres is None else float(tie_metres)
@@ -74,8 +78,18 @@ def nearby_for_visitor(visitor_id, lat, lng, radius=50.0, tie_metres=None):
         WITH me AS (
             SELECT ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)::geography AS g
         ),
+        previous_point AS (            -- vị trí gần nhất TRƯỚC vị trí hiện tại trong lộ trình đã lưu
+            SELECT t.geom::geography AS g
+            FROM visitor_tracks t, me
+            WHERE t.visitor_id = %(vid)s AND NOT ST_DWithin(t.geom::geography, me.g, 1)
+            ORDER BY t.recorded_at DESC, t.id DESC
+            LIMIT 1
+        ),
+        heading AS (                   -- hướng đi (radian, tính từ hướng bắc theo chiều kim đồng hồ)
+            SELECT COALESCE((SELECT ST_Azimuth(p.g, me.g) FROM previous_point p, me), 0) AS h
+        ),
         candidates AS (
-            SELECT e.id, e.name, e.description, e.audio_file,
+            SELECT e.id, e.name, e.description, e.audio_file, e.geom,
                    ROUND(COALESCE(ST_Distance(e.geom_poly::geography, me.g),
                                   ST_Distance(e.geom::geography, me.g))::numeric, 1) AS distance_meters
             FROM exhibits e, me
@@ -85,13 +99,15 @@ def nearby_for_visitor(visitor_id, lat, lng, radius=50.0, tie_metres=None):
             SELECT c.*,
                    EXISTS (SELECT 1 FROM exhibit_visits v
                            WHERE v.visitor_id = %(vid)s AND v.exhibit_id = c.id) AS visited,
-                   c.distance_meters - MIN(c.distance_meters) OVER () <= %(tie)s AS in_tie_group
-            FROM candidates c
+                   c.distance_meters - MIN(c.distance_meters) OVER () <= %(tie)s AS in_tie_group,
+                   ROUND(SIN(COALESCE(ST_Azimuth(me.g, c.geom::geography), 0) - heading.h)::numeric, 3) AS right_score
+            FROM candidates c, me, heading
         )
-        SELECT id, name, description, audio_file, distance_meters, visited, in_tie_group
+        SELECT id, name, description, audio_file, distance_meters, visited, in_tie_group, right_score
         FROM ranked
         ORDER BY in_tie_group DESC,          -- nhóm gần nhất lên trước
                  visited ASC,                -- trong nhóm: chưa ghé trước
+                 right_score DESC,           -- vẫn ngang nhau: khu bên phải hướng đi trước
                  distance_meters ASC, id ASC;
     '''
     with database_cursor() as cur:

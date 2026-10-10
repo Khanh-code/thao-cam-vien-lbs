@@ -139,18 +139,18 @@ def test_app_end_to_end_priority_and_tracking():
     app.session_state['user_lat'], app.session_state['user_lng'] = EQUAL
     app.run()
     assert not app.exception, app.exception
-    first = page_text(app, 'tcv-placard')[0]
+    first = page_text(app, 'tcv-zone')[0]
     vid = app.session_state['visitor_id']
     assert app.query_params['v'] == [vid] or app.query_params['v'] == vid
     app.run()                                           # rerun tại chỗ -> không nhảy sang khu khác
-    assert page_text(app, 'tcv-placard')[0] == first
+    assert page_text(app, 'tcv-zone')[0] == first
     # Đi ra rồi quay lại đúng điểm cách đều -> lần này phải phát khu CHƯA ghé
     app.session_state['user_lat'], app.session_state['user_lng'] = (10.7850, 106.7000)   # chỗ không có phân khu
     app.run()
     app.session_state['user_lat'], app.session_state['user_lng'] = EQUAL
     app.run()
     assert not app.exception
-    assert page_text(app, 'tcv-placard')[0] != first
+    assert page_text(app, 'tcv-zone')[0] != first
     assert len(tracking.visitor_track(vid)) == 3
 
 
@@ -168,12 +168,50 @@ def test_admin_sees_only_admin_tools_and_is_not_tracked():
     assert not app.exception
     headers = [h.value for h in app.header]
     assert any('Trang quản trị' in h for h in headers)
-    assert not any('Bản đồ' in s.value for s in app.subheader)          # không có bản đồ / dẫn đường
+    assert not any('Bản đồ' in t for t in page_text(app, 'tcv-section'))   # không có bản đồ / dẫn đường
     assert not any('Bảng thuật ngữ' in e.label for e in app.expander)   # đã bỏ tab thuật ngữ
     app.sidebar.toggle[0].set_value(True).run()                          # bật xem thử giao diện khách
-    assert any('Bản đồ' in s.value for s in app.subheader)
+    assert any('Bản đồ' in t for t in page_text(app, 'tcv-section'))
     with database_cursor() as cur:
         cur.execute('SELECT COUNT(*) AS n FROM visitors')
         after = cur.fetchone()['n']
     # Chỉ lượt mở trang trước khi đăng nhập được tính là khách; admin xem thử không tạo thêm
     assert after - before <= 1
+
+
+# Hai khu cách đều EQUAL: 'Khu Thú Ăn Thịt' ở phía TÂY (106.7047), 'Khu Chuồng Voi' ở phía ĐÔNG (106.7053)
+WEST_ZONE, EAST_ZONE = 'Khu Thú Ăn Thịt', 'Khu Chuồng Voi'
+
+
+@needs_db
+def test_both_unvisited_prefers_right_side_default_east():
+    vid = tracking.get_or_create_visitor()
+    tracking.record_position(vid, *EQUAL)                 # mới vào, chưa có hướng đi
+    rows = tracking.nearby_for_visitor(vid, *EQUAL)
+    assert rows[0]['name'] == EAST_ZONE                  # coi như nhìn hướng bắc -> bên phải là phía đông
+
+
+@needs_db
+def test_right_side_follows_walking_direction():
+    # Đi từ bắc xuống nam (đang hướng về phía nam) -> bên phải là phía TÂY
+    vid = tracking.get_or_create_visitor()
+    tracking.record_position(vid, EQUAL[0] + 0.0003, EQUAL[1])
+    tracking.record_position(vid, *EQUAL)
+    rows = tracking.nearby_for_visitor(vid, *EQUAL)
+    assert rows[0]['name'] == WEST_ZONE and rows[0]['right_score'] > 0
+    # Đi từ nam lên bắc -> bên phải là phía ĐÔNG
+    vid2 = tracking.get_or_create_visitor()
+    tracking.record_position(vid2, EQUAL[0] - 0.0003, EQUAL[1])
+    tracking.record_position(vid2, *EQUAL)
+    assert tracking.nearby_for_visitor(vid2, *EQUAL)[0]['name'] == EAST_ZONE
+
+
+@needs_db
+def test_unvisited_beats_right_side():
+    # Khu bên phải đã ghé -> vẫn ưu tiên khu chưa ghé dù nó ở bên trái
+    vid = tracking.get_or_create_visitor()
+    tracking.record_position(vid, *EQUAL)
+    first = tracking.nearby_for_visitor(vid, *EQUAL)[0]
+    assert first['name'] == EAST_ZONE
+    tracking.mark_visited(vid, first['id'])
+    assert tracking.nearby_for_visitor(vid, *EQUAL)[0]['name'] == WEST_ZONE

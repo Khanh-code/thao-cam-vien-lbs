@@ -114,10 +114,10 @@ def test_chinese_ui_plays_auto_voice(monkeypatch):
     spoken = []
     monkeypatch.setattr(content, 'synthesize', lambda t, l: spoken.append((t, l)) or FAKE_MP3)
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=30).run()
-    app.sidebar.selectbox[0].select('zh').run()
+    app.radio(key='lang').set_value('zh').run()
     assert not app.exception, app.exception
     assert any('西贡动植物园（Thảo Cầm Viên）' in h for h in page_text(app, 'tcv-hero'))
-    assert any('食肉动物区' in p for p in page_text(app, 'tcv-placard'))
+    assert any('食肉动物区' in p for p in page_text(app, 'tcv-zone'))
     assert len(app.get('audio')) == 1
     assert ('这里饲养和保护狮子、孟加拉白虎、印度支那虎和花豹等凶猛的猛兽。', 'zh') in spoken
 

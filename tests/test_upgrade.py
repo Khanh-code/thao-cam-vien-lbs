@@ -113,10 +113,10 @@ def test_guest_ui_languages_and_session_isolation(monkeypatch):
     assert not vietnamese.exception
     assert any('Thảo Cầm Viên Sài Gòn' in h for h in page_text(vietnamese, 'tcv-hero'))
     english = AppTest.from_file(app_path).run()
-    english.sidebar.selectbox[0].select('en').run()
+    english.radio(key='lang').set_value('en').run()
     assert not english.exception
     assert any('Saigon Zoo and Botanical Gardens (Thảo Cầm Viên)' in h for h in page_text(english, 'tcv-hero'))
-    assert vietnamese.sidebar.selectbox[0].value == 'vi'
+    assert vietnamese.radio(key='lang').value == 'vi'
     english.session_state['user_lat'] = 10.8
     assert vietnamese.session_state['user_lat'] == 10.78775
     assert len(english.text_area) == 0  # guest cannot access the content editor
@@ -138,11 +138,11 @@ def test_original_images_and_narration_remain_available(monkeypatch):
     assert not app.exception
     assert len(app.get('image')) == 1, repr(app)
     assert len(app.get('audio')) == 1
-    assert any(button.label == '◀ Trước' for button in app.button)
-    app.sidebar.selectbox[0].select('en').run()
+    assert any(button.label == 'Ảnh trước' for button in app.button)
+    app.radio(key='lang').set_value('en').run()
     assert not app.exception
     assert len(app.get('image')) == 1 and len(app.get('audio')) == 1
-    assert any('Carnivore Zone' in p for p in page_text(app, 'tcv-placard'))
+    assert any('Carnivore Zone' in p for p in page_text(app, 'tcv-zone'))
     # Tiếng Anh: tự đọc đúng bản dịch mới, không phát file tiếng Việt
     assert spoken == [(content.ENGLISH['Khu Thú Ăn Thịt']['description'], 'en')]
 
