@@ -104,14 +104,25 @@ def localize(item, language, translated):
                 result['audio_file'] = default.get('audio_file')
         result['translated'] = True
     elif item['name'] in BUILTIN.get(language, {}):
-        result.update(BUILTIN[language][item['name']])
-        result.setdefault('audio_file', None)
-        if language != 'en':
-            result['audio_file'] = None   # chưa có file MP3 -> app dùng auto_voice()
+        builtin = BUILTIN[language][item['name']]
+        result.update(builtin)
+        # Chỉ dùng MP3 khớp đúng bản dịch; không có -> app tự đọc bằng auto_voice(), không phát nhầm audio tiếng Việt
+        result['audio_file'] = builtin.get('audio_file')
         result['translated'] = True
     elif language != 'vi':
         # Do not silently play Vietnamese narration under an English selection.
         result['audio_file'] = None
+    return result
+
+
+def with_vietnamese_name(item, original_name, language):
+    """Dịch có chọn lọc: tên phân khu được dịch nhưng luôn kèm tên gốc tiếng Việt (giữ nguyên dấu),
+    để khách nước ngoài đối chiếu được với biển chỉ dẫn trong Thảo Cầm Viên.
+    Ví dụ: "Reptile Zone (Khu Bò Sát)", "爬行动物区（Khu Bò Sát）"."""
+    result = dict(item)
+    name = (result.get('name') or '').strip()
+    if language != 'vi' and original_name and original_name not in name:
+        result['name'] = f'{name}（{original_name}）' if language == 'zh' else f'{name} ({original_name})'
     return result
 
 

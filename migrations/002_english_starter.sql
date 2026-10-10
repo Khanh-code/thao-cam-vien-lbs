@@ -5,13 +5,13 @@ INSERT INTO exhibit_translations(exhibit_id, language, name, description)
 SELECT e.id, 'en', t.english_name, t.description
 FROM exhibits e
 JOIN (VALUES
- ('Khu Thú Ăn Thịt', 'Carnivore Zone', 'This zone houses carnivorous animals such as lions, Bengal white tigers, Indochinese tigers and leopards.'),
+ ('Khu Thú Ăn Thịt', 'Carnivore Zone', 'This zone cares for and conserves powerful predators such as lions, white Bengal tigers, Indochinese tigers and leopards.'),
  ('Khu Chuồng Voi', 'Elephant Enclosure', 'The elephants live in a spacious enclosure near the giraffes, beside the river.'),
- ('Khu Vực Linh Trưởng & Thú Nhỏ', 'Primates and Small Mammals', 'This zone is home to monkeys, gibbons and active small mammals.'),
- ('Khu Bò Sát', 'Reptile Zone', 'See pythons, snakes, crocodiles and tropical turtles in this zone.'),
- ('Vườn Lan & Xương Rồng', 'Orchid and Cactus Garden', 'Located to the left of the main stage, this green garden is a popular place to take photographs.'),
- ('Khu Vui Chơi Giải Trí (Đu Quay)', 'Amusement Zone', 'This zone offers amusement rides and outdoor activities for children.'),
- ('Khu Vui Chơi Giải Trí', 'Amusement Zone', 'This zone offers amusement rides and outdoor activities for children.')
+ ('Khu Vực Linh Trưởng & Thú Nhỏ', 'Primates and Small Mammals Area', 'The natural home of monkeys, gibbons and many lively small mammals.'),
+ ('Khu Bò Sát', 'Reptile Zone', 'Home to pythons, snakes, crocodiles and rare tropical turtles.'),
+ ('Vườn Lan & Xương Rồng', 'Orchid and Cactus Garden', 'Located to the left of the main stage, this cool green garden is a popular photo spot.'),
+ ('Khu Vui Chơi Giải Trí (Đu Quay)', 'Amusement Area', 'An area with thrill rides and outdoor play spaces for children.'),
+ ('Khu Vui Chơi Giải Trí', 'Amusement Area', 'An area with thrill rides and outdoor play spaces for children.')
 ) AS t(vietnamese_name, english_name, description) ON e.name = t.vietnamese_name
 ON CONFLICT(exhibit_id, language) DO NOTHING;
 COMMIT;

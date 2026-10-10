@@ -110,7 +110,7 @@ def test_guest_ui_languages_and_session_isolation(monkeypatch):
     english = AppTest.from_file(app_path).run()
     english.sidebar.selectbox[0].select('en').run()
     assert not english.exception
-    assert english.title[0].value == 'Saigon Zoo Visitor Guide'
+    assert english.title[0].value == 'Saigon Zoo and Botanical Gardens (Thảo Cầm Viên) – Visitor Guide'
     assert vietnamese.sidebar.selectbox[0].value == 'vi'
     english.session_state['user_lat'] = 10.8
     assert vietnamese.session_state['user_lat'] == 10.78775
@@ -127,6 +127,8 @@ def test_original_images_and_narration_remain_available(monkeypatch):
     monkeypatch.setattr(db, 'query_nearby', lambda *args, **kwargs: [dict(exhibit, distance_meters=0)])
     monkeypatch.setattr(content, 'translations', lambda lang: {})
     monkeypatch.setattr(streamlit_folium, 'st_folium', lambda *args, **kwargs: {})
+    spoken = []
+    monkeypatch.setattr(content, 'synthesize', lambda t, l: spoken.append((t, l)) or b'ID3fake')
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
     assert not app.exception
     assert len(app.get('image')) == 1, repr(app)
@@ -136,4 +138,6 @@ def test_original_images_and_narration_remain_available(monkeypatch):
     assert not app.exception
     assert len(app.get('image')) == 1 and len(app.get('audio')) == 1
     assert any('Carnivore Zone' in item.value for item in app.success)
+    # Tiếng Anh: tự đọc đúng bản dịch mới, không phát file tiếng Việt
+    assert spoken == [(content.ENGLISH['Khu Thú Ăn Thịt']['description'], 'en')]
 

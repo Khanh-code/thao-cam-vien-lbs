@@ -1,8 +1,7 @@
 {
   "Khu Thú Ăn Thịt": {
     "name": "Carnivore Zone",
-    "description": "This zone houses carnivorous animals such as lions, Bengal white tigers, Indochinese tigers and leopards.",
-    "audio_file": "en/thu_an_thit.mp3"
+    "description": "This zone cares for and conserves powerful predators such as lions, white Bengal tigers, Indochinese tigers and leopards."
   },
   "Khu Chuồng Voi": {
     "name": "Elephant Enclosure",
@@ -10,28 +9,23 @@
     "audio_file": "en/chuong_voi.mp3"
   },
   "Khu Vực Linh Trưởng & Thú Nhỏ": {
-    "name": "Primates and Small Mammals",
-    "description": "This zone is home to monkeys, gibbons and active small mammals.",
-    "audio_file": "en/linh_truong.mp3"
+    "name": "Primates and Small Mammals Area",
+    "description": "The natural home of monkeys, gibbons and many lively small mammals."
   },
   "Khu Bò Sát": {
     "name": "Reptile Zone",
-    "description": "See pythons, snakes, crocodiles and tropical turtles in this zone.",
-    "audio_file": "en/bo_sat.mp3"
+    "description": "Home to pythons, snakes, crocodiles and rare tropical turtles."
   },
   "Vườn Lan & Xương Rồng": {
     "name": "Orchid and Cactus Garden",
-    "description": "Located to the left of the main stage, this green garden is a popular place to take photographs.",
-    "audio_file": "en/vuon_lan.mp3"
+    "description": "Located to the left of the main stage, this cool green garden is a popular photo spot."
   },
   "Khu Vui Chơi Giải Trí (Đu Quay)": {
-    "name": "Amusement Zone",
-    "description": "This zone offers amusement rides and outdoor activities for children.",
-    "audio_file": "en/vui_choi.mp3"
+    "name": "Amusement Area",
+    "description": "An area with thrill rides and outdoor play spaces for children."
   },
   "Khu Vui Chơi Giải Trí": {
-    "name": "Amusement Zone",
-    "description": "This zone offers amusement rides and outdoor activities for children.",
-    "audio_file": "en/vui_choi.mp3"
+    "name": "Amusement Area",
+    "description": "An area with thrill rides and outdoor play spaces for children."
   }
 }

@@ -111,10 +111,10 @@ def test_chinese_ui_plays_auto_voice(monkeypatch):
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=30).run()
     app.sidebar.selectbox[0].select('zh').run()
     assert not app.exception, app.exception
-    assert app.title[0].value == '西贡动植物园户外导览系统'
+    assert app.title[0].value == '西贡动植物园（Thảo Cầm Viên）户外导览系统'
     assert any('食肉动物区' in s.value for s in app.success)
     assert len(app.get('audio')) == 1
-    assert ('这里饲养和保护狮子、孟加拉白虎、印度支那虎和豹等凶猛的食肉动物。', 'zh') in spoken
+    assert ('这里饲养和保护狮子、孟加拉白虎、印度支那虎和花豹等凶猛的猛兽。', 'zh') in spoken
 
 
 @needs_db
@@ -124,3 +124,16 @@ def test_admin_can_save_chinese(admin, monkeypatch):
     content.translations.clear()
     row = content.translations('zh')[3]
     assert row['name'] == '爬行动物区' and row['has_audio']
+
+
+def test_proper_names_keep_vietnamese_with_diacritics():
+    raw = {'id': 4, 'name': 'Khu Bò Sát', 'description': 'x', 'audio_file': None}
+    zh = content.with_vietnamese_name(content.localize(raw, 'zh', {}), raw['name'], 'zh')
+    en = content.with_vietnamese_name(content.localize(raw, 'en', {}), raw['name'], 'en')
+    vi = content.with_vietnamese_name(content.localize(raw, 'vi', {}), raw['name'], 'vi')
+    assert zh['name'] == '爬行动物区（Khu Bò Sát）'
+    assert en['name'] == 'Reptile Zone (Khu Bò Sát)'
+    assert vi['name'] == 'Khu Bò Sát'
+    # Không lặp tên gốc nếu bản dịch đã chứa sẵn
+    again = content.with_vietnamese_name(zh, raw['name'], 'zh')
+    assert again['name'].count('Khu Bò Sát') == 1

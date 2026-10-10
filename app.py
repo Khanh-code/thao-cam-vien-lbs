@@ -2,7 +2,7 @@ from pathlib import Path
 import logging
 import html
 from admin_ui import render_admin
-from content import LANGUAGES, translations, localize, generated_audio, auto_voice
+from content import LANGUAGES, translations, localize, generated_audio, auto_voice, with_vietnamese_name
 BASE = Path(__file__).resolve().parent
 import json
 import os
@@ -26,11 +26,12 @@ def tr(vi, en, zh=None):
     # Chuỗi giao diện theo ngôn ngữ đang chọn (thiếu tiếng Trung -> dùng tiếng Anh)
     return {'vi': vi, 'zh': zh or en}.get(language, en)
 
-st.title(tr('Hệ Thống Hướng Dẫn Viên Du Lịch Ngoài Trời - Thảo Cầm Viên', 'Saigon Zoo Visitor Guide', '西贡动植物园户外导览系统'))
+st.title(tr('Hệ Thống Hướng Dẫn Viên Du Lịch Ngoài Trời - Thảo Cầm Viên', 'Saigon Zoo and Botanical Gardens (Thảo Cầm Viên) – Visitor Guide', '西贡动植物园（Thảo Cầm Viên）户外导览系统'))
 try:
     raw_exhibits = get_all_exhibits()
     content_translations = translations(language)
-    all_exhibits = [localize(item, language, content_translations) for item in raw_exhibits]
+    # Tên riêng giữ nguyên tiếng Việt có dấu: tên phân khu dịch kèm tên gốc
+    all_exhibits = [with_vietnamese_name(localize(item, language, content_translations), item['name'], language) for item in raw_exhibits]
     all_walkways = get_all_walkways()
 except Exception as load_error:
     logging.exception('Database load failed')
@@ -133,7 +134,7 @@ with st.sidebar:
     st.caption(tr('Bán kính phát hiện GPS: **50 mét**', 'Detection radius: **50 metres**', '检测半径：**50 米**'))
 col_map, col_info = st.columns([7, 5])
 with col_map:
-    st.subheader(tr('📍 Bản đồ Thảo Cầm Viên', '📍 Saigon Zoo Map', '📍 西贡动植物园地图'))
+    st.subheader(tr('📍 Bản đồ Thảo Cầm Viên', '📍 Saigon Zoo and Botanical Gardens map', '📍 西贡动植物园地图'))
     fmap = folium.Map(location=[st.session_state.user_lat, st.session_state.user_lng], zoom_start=18, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', attr='Esri')
     for w in all_walkways:
         if w.get('geom_json'):
@@ -182,7 +183,7 @@ with col_info:
     st.subheader(tr('🎧 Hướng Dẫn Viên Thuyết Minh', '🎧 Visitor information', '🎧 语音导览'))
     st.markdown(tr(f'**Tọa độ hiện tại:** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`', f'**Current coordinates:** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`', f'**当前坐标：** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`'))
     if target_raw:
-        target = localize(target_raw, language, content_translations)
+        target = with_vietnamese_name(localize(target_raw, language, content_translations), target_raw['name'], language)
         if not target['translated']:
             st.info(tr('Chưa có bản dịch; hiển thị nội dung tiếng Việt.', 'Translation unavailable; showing Vietnamese content.', '暂无中文翻译，显示越南语内容。'))
         st.success(tr(f'🎯 **Hiện vật gần nhất:** {target["name"]}', f'🎯 **Nearest zone:** {target["name"]}', f'🎯 **最近的展区：** {target["name"]}'))
