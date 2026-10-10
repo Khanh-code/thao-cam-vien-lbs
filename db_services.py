@@ -31,15 +31,31 @@ def database_cursor():
         finally:
             slots.release()
 
+@st.cache_data(ttl=60, show_spinner=False)
+def zones_v2():
+    """True nếu database đã chạy migration 007 (cột is_active, color + bảng exhibit_images)."""
+    with database_cursor() as cur:
+        cur.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
+                       WHERE table_name = 'exhibits' AND column_name IN ('is_active', 'color')""")
+        return cur.fetchone()['n'] == 2
+
+
+def active_sql(alias=''):
+    """Điều kiện chỉ lấy khu còn hiển thị (khu đã xoá bị ẩn). Database cũ -> lấy tất cả."""
+    return f'{alias}is_active' if zones_v2() else 'TRUE'
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def get_all_exhibits():
     """Truy vấn danh sách tất cả các điểm trưng bày kèm tọa độ và polygon ranh giới."""
     with database_cursor() as cur:
-        cur.execute("""
-            SELECT id, name, description, audio_file, 
+        color = 'color' if zones_v2() else 'NULL::text AS color'
+        cur.execute(f"""
+            SELECT id, name, description, audio_file, {color},
                    ST_X(geom) AS lng, ST_Y(geom) AS lat,
                    ST_AsGeoJSON(geom_poly) AS poly_geojson
-            FROM exhibits 
+            FROM exhibits
+            WHERE {active_sql()}
             ORDER BY id ASC;
         """)
         rows = cur.fetchall()
@@ -59,8 +75,9 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
     Truy vấn không gian ST_DWithin phát hiện các phân khu nằm trong bán kính người dùng.
     Cache ngắn 5 giây theo tọa độ, giới hạn số mục để tránh tăng RAM vô hạn.
     """
+    active = active_sql()
     with database_cursor() as cur:
-        query = """
+        query = f"""
             SELECT 
                 id, 
                 name, 
@@ -73,7 +90,7 @@ def query_nearby(lat: float, lng: float, radius: float = 50.0):
                     )::numeric, 1
                 ) AS distance_meters
             FROM exhibits
-            WHERE ST_DWithin(
+            WHERE {active} AND ST_DWithin(
                 COALESCE(geom_poly::geography, geom::geography), 
                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, 
                 %s

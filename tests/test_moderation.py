@@ -53,6 +53,6 @@ def test_admin_ui_shows_profanity_error(monkeypatch):
     inp('Tài khoản').input('admin'); inp('Mật khẩu').input('123456')
     next(b for b in app.sidebar.button if 'Đăng nhập' in b.label).click().run()
     app.text_area[0].input('Khu này vcl luôn')
-    next(b for b in app.button if 'Lưu & tạo' in b.label).click().run()
+    next(b for b in app.button if b.label == 'Lưu thay đổi').click().run()
     assert not app.exception
     assert any('không phù hợp' in e.value and 'v**' in e.value for e in app.error)

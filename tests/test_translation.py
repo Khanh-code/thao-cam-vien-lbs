@@ -152,10 +152,10 @@ def test_admin_ui_skips_unchanged_save(monkeypatch):
     import uuid
     text = SOURCE + ' ' + uuid.uuid4().hex[:6]                       # nội dung mới chưa từng lưu
     app.text_area[0].input(text)
-    next(b for b in app.button if 'Lưu & tạo' in b.label).click().run()
+    next(b for b in app.button if b.label == 'Lưu thay đổi').click().run()
     assert not app.exception and sorted(calls) == ['en', 'vi', 'zh']
     calls.clear()
-    next(b for b in app.button if 'Lưu & tạo' in b.label).click().run()   # bấm Lưu lại, không sửa gì
+    next(b for b in app.button if b.label == 'Lưu thay đổi').click().run()   # bấm Lưu lại, không sửa gì
     assert calls == []                                                      # không tạo lại giọng đọc / không dịch lại
     assert any('giống hệt' in i.value for i in app.info)
 

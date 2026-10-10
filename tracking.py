@@ -13,7 +13,7 @@ Mọi hàm đều "xuống cấp nhẹ nhàng": chưa chạy migration 003 thì 
 import uuid
 from psycopg2.errors import UndefinedTable
 from config import setting
-from db_services import database_cursor
+from db_services import database_cursor, active_sql
 
 TIMEZONE = 'Asia/Ho_Chi_Minh'
 RESET_PERIOD = str(setting('visitor', 'reset_period', 'day')).lower()
@@ -74,7 +74,8 @@ def nearby_for_visitor(visitor_id, lat, lng, radius=50.0, tie_metres=None):
     - Còn lại xếp theo khoảng cách tăng dần.
     """
     tie = TIE_METRES if tie_metres is None else float(tie_metres)
-    query = '''
+    active = active_sql('e.')
+    query = f'''
         WITH me AS (
             SELECT ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)::geography AS g
         ),
@@ -93,7 +94,7 @@ def nearby_for_visitor(visitor_id, lat, lng, radius=50.0, tie_metres=None):
                    ROUND(COALESCE(ST_Distance(e.geom_poly::geography, me.g),
                                   ST_Distance(e.geom::geography, me.g))::numeric, 1) AS distance_meters
             FROM exhibits e, me
-            WHERE ST_DWithin(COALESCE(e.geom_poly::geography, e.geom::geography), me.g, %(radius)s)
+            WHERE {active} AND ST_DWithin(COALESCE(e.geom_poly::geography, e.geom::geography), me.g, %(radius)s)
         ),
         ranked AS (
             SELECT c.*,

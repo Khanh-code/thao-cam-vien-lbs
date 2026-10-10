@@ -13,6 +13,7 @@ from config import COLOR_PALETTE, EXHIBIT_IMAGES
 from db_services import get_all_exhibits, get_all_walkways, query_nearby, get_shortest_path
 import tracking
 import ui
+from zones import zone_images
 
 BASE = Path(__file__).resolve().parent
 
@@ -29,8 +30,8 @@ def database_read(operation, *args, **kwargs):
 st.set_page_config(page_title='Thảo Cầm Viên Sài Gòn – Hướng dẫn tham quan', page_icon='🌿', layout='wide')
 st.markdown(ui.CSS, unsafe_allow_html=True)
 
-# ===== Thanh trên cùng: tên + chọn ngôn ngữ =====
-bar_left, bar_right = st.columns([3, 2], vertical_alignment='center')
+# ===== Thanh trên cùng: chọn ngôn ngữ =====
+_, bar_right = st.columns([3, 2], vertical_alignment='center')
 with bar_right:
     language = st.radio('Ngôn ngữ / Language / 语言', list(LANGUAGES), format_func=LANGUAGES.get,
                         horizontal=True, key='lang', label_visibility='collapsed')
@@ -40,10 +41,6 @@ def tr(vi, en, zh=None):
     # Chuỗi giao diện theo ngôn ngữ đang chọn (thiếu tiếng Trung -> dùng tiếng Anh)
     return {'vi': vi, 'zh': zh or en}.get(language, en)
 
-
-with bar_left:
-    st.markdown(ui.top_bar_brand('Thảo Cầm Viên', tr('Sài Gòn · hướng dẫn tham quan', 'Saigon · visitor guide', 'Sài Gòn · 游览指南')),
-                unsafe_allow_html=True)
 
 try:
     raw_exhibits = get_all_exhibits()
@@ -121,7 +118,9 @@ else:
 
 
 def zone_color(item):
-    return COLOR_PALETTE.get(next(x['name'] for x in raw_exhibits if x['id'] == item['id']), ui.GREEN)
+    # Màu admin chọn (lưu trong database); database cũ -> bảng màu cố định theo tên khu
+    raw = next(x for x in raw_exhibits if x['id'] == item['id'])
+    return raw.get('color') or COLOR_PALETTE.get(raw['name'], ui.GREEN)
 
 
 def go_to(item):
@@ -198,7 +197,7 @@ with col_map:
             folium.GeoJson(json.loads(item['poly_geojson']), name=item['name'],
                            style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 2, 'fillOpacity': 0.25},
                            tooltip=f'<b>{html.escape(item["name"])}</b>').add_to(fmap)
-        icon_color, icon_name = ui.ZONE_ICON.get(color, ('green', 'leaf'))
+        icon_color, icon_name = ui.ZONE_ICON.get(color, ('darkgreen', 'leaf'))
         folium.Marker(location=[item['lat'], item['lng']], tooltip=html.escape(item['name']), popup=html.escape(item['name']),
                       icon=folium.Icon(color=icon_color, icon=icon_name, prefix='fa')).add_to(fmap)
     if st.session_state.target_route_id:
@@ -248,11 +247,13 @@ with col_info:
     if target_raw:
         target = with_vietnamese_name(localize(target_raw, language, content_translations), target_raw['name'], language)
         with st.container(key='guide'):
-            img_list = EXHIBIT_IMAGES.get(target['id'], [])
-            valid_images = [img for img in img_list if os.path.exists(str(BASE / 'images' / img))]
+            # Ảnh admin tải lên (database) trước, sau đó ảnh có sẵn trong thư mục images/
+            valid_images = [data for _, data in (tracking_call(zone_images, target['id'], default=[]) or [])]
+            valid_images += [str(BASE / 'images' / img) for img in EXHIBIT_IMAGES.get(target['id'], [])
+                             if os.path.exists(str(BASE / 'images' / img))]
             if valid_images:
                 idx = st.session_state.img_index % len(valid_images)
-                st.image(str(BASE / 'images' / valid_images[idx]), use_container_width=True)
+                st.image(valid_images[idx], use_container_width=True)
                 if len(valid_images) > 1:
                     c_prev, c_txt, c_next = st.columns([2, 1, 2])
                     with c_prev:
@@ -295,26 +296,3 @@ with col_info:
                f'离您最近的是 {closest["name"]}，约 {far:.0f} 米。可在"步行前往"中选择并点击查找路线，或直接点击地图。')),
             unsafe_allow_html=True)
     st.markdown('<p class="tcv-coords">' + ui.esc(tr('Tọa độ', 'Coordinates', '坐标')) + f': {st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}</p>', unsafe_allow_html=True)
-
-# ===== Thông tin kỹ thuật (cho người đánh giá đồ án) =====
-with st.expander(tr('Về hệ thống', 'About this system', '关于本系统')):
-    st.markdown(tr('''
-- **Lưu trữ không gian:** PostgreSQL + PostGIS trên Neon; ranh giới khu là `Polygon`, lối đi bộ là `LineString`, có chỉ mục GiST.
-- **Geofencing 50 m:** `ST_DWithin` trên kiểu `geography`, xếp hạng bằng window function và ưu tiên khu khách chưa ghé.
-- **Dẫn đường:** `pgr_dijkstra` (pgRouting) trên 1.192 đoạn lối đi lấy từ OpenStreetMap; điểm vào mạng tìm bằng KNN `<->`.
-- **Nội dung đa ngôn ngữ:** Việt / Anh / Trung, giọng đọc tạo bằng gTTS, bản dịch máy được kiểm tra bằng dịch ngược và bảng thuật ngữ.
-- **Bản đồ nền:** © OpenStreetMap contributors, © CARTO, Esri.
-''', '''
-- **Spatial storage:** PostgreSQL + PostGIS on Neon; zone boundaries as `Polygon`, walkways as `LineString`, GiST indexes.
-- **50 m geofencing:** `ST_DWithin` on `geography`, ranked with a window function that favours zones not yet visited.
-- **Routing:** `pgr_dijkstra` (pgRouting) over 1,192 OpenStreetMap walkway segments; network entry via KNN `<->`.
-- **Multilingual content:** Vietnamese / English / Chinese, gTTS narration, machine translations checked by back-translation and a glossary.
-- **Base maps:** © OpenStreetMap contributors, © CARTO, Esri.
-''', '''
-- **空间存储：** Neon 上的 PostgreSQL + PostGIS；展区边界为 `Polygon`，步道为 `LineString`，建有 GiST 索引。
-- **50米地理围栏：** 基于 `geography` 的 `ST_DWithin`，用窗口函数排序并优先未参观的展区。
-- **路径规划：** 在 1,192 段 OpenStreetMap 步道上运行 `pgr_dijkstra`（pgRouting），用 KNN `<->` 接入路网。
-- **多语言内容：** 越南语 / 英语 / 中文，gTTS 语音，机器翻译经回译和术语表校验。
-- **底图：** © OpenStreetMap contributors, © CARTO, Esri。
-'''))
-
