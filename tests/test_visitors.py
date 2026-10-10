@@ -8,6 +8,11 @@ import sys
 from pathlib import Path
 import pytest
 
+def page_text(app, css):
+    """Nội dung các khối HTML của giao diện (dải tiêu đề, thẻ thuyết minh...) theo lớp CSS."""
+    return [m.value for m in app.markdown if f'class="{css}"' in m.value]
+
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import auth
 import tracking
@@ -134,18 +139,18 @@ def test_app_end_to_end_priority_and_tracking():
     app.session_state['user_lat'], app.session_state['user_lng'] = EQUAL
     app.run()
     assert not app.exception, app.exception
-    first = app.success[0].value
+    first = page_text(app, 'tcv-placard')[0]
     vid = app.session_state['visitor_id']
     assert app.query_params['v'] == [vid] or app.query_params['v'] == vid
     app.run()                                           # rerun tại chỗ -> không nhảy sang khu khác
-    assert app.success[0].value == first
+    assert page_text(app, 'tcv-placard')[0] == first
     # Đi ra rồi quay lại đúng điểm cách đều -> lần này phải phát khu CHƯA ghé
     app.session_state['user_lat'], app.session_state['user_lng'] = (10.7850, 106.7000)   # chỗ không có phân khu
     app.run()
     app.session_state['user_lat'], app.session_state['user_lng'] = EQUAL
     app.run()
     assert not app.exception
-    assert app.success[0].value != first
+    assert page_text(app, 'tcv-placard')[0] != first
     assert len(tracking.visitor_track(vid)) == 3
 
 

@@ -5,6 +5,11 @@ import sys
 from pathlib import Path
 import pytest
 
+def page_text(app, css):
+    """Nội dung các khối HTML của giao diện (dải tiêu đề, thẻ thuyết minh...) theo lớp CSS."""
+    return [m.value for m in app.markdown if f'class="{css}"' in m.value]
+
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import auth
 import content
@@ -111,8 +116,8 @@ def test_chinese_ui_plays_auto_voice(monkeypatch):
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=30).run()
     app.sidebar.selectbox[0].select('zh').run()
     assert not app.exception, app.exception
-    assert app.title[0].value == '西贡动植物园（Thảo Cầm Viên）户外导览系统'
-    assert any('食肉动物区' in s.value for s in app.success)
+    assert any('西贡动植物园（Thảo Cầm Viên）' in h for h in page_text(app, 'tcv-hero'))
+    assert any('食肉动物区' in p for p in page_text(app, 'tcv-placard'))
     assert len(app.get('audio')) == 1
     assert ('这里饲养和保护狮子、孟加拉白虎、印度支那虎和花豹等凶猛的猛兽。', 'zh') in spoken
 

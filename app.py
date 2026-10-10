@@ -13,6 +13,7 @@ from streamlit_folium import st_folium
 from config import COLOR_PALETTE, EXHIBIT_IMAGES
 from db_services import get_all_exhibits, get_all_walkways, query_nearby, get_shortest_path
 import tracking
+import ui
 
 def database_read(operation, *args, **kwargs):
     try:
@@ -21,13 +22,14 @@ def database_read(operation, *args, **kwargs):
         logging.exception('Spatial query failed')
         st.error(tr('Truy vấn đang bận hoặc gặp lỗi. Vui lòng thử lại.', 'Query is busy or failed. Please retry.', '查询繁忙或出错，请重试。'))
         st.stop()
-st.set_page_config(page_title='Hệ Thống Hướng Dẫn Viên Du Lịch - Thảo Cầm Viên', page_icon='🌿', layout='wide')
+st.set_page_config(page_title='Thảo Cầm Viên – Hướng dẫn tham quan', page_icon='🌿', layout='wide')
+st.markdown(ui.CSS, unsafe_allow_html=True)
 language = st.sidebar.selectbox('Ngôn ngữ / Language', list(LANGUAGES), format_func=LANGUAGES.get)
 def tr(vi, en, zh=None):
     # Chuỗi giao diện theo ngôn ngữ đang chọn (thiếu tiếng Trung -> dùng tiếng Anh)
     return {'vi': vi, 'zh': zh or en}.get(language, en)
 
-st.title(tr('Hệ Thống Hướng Dẫn Viên Du Lịch Ngoài Trời - Thảo Cầm Viên', 'Saigon Zoo and Botanical Gardens (Thảo Cầm Viên) – Visitor Guide', '西贡动植物园（Thảo Cầm Viên）户外导览系统'))
+HERO_TITLE = tr('Thảo Cầm Viên Sài Gòn', 'Saigon Zoo and Botanical Gardens (Thảo Cầm Viên)', '西贡动植物园（Thảo Cầm Viên）')
 try:
     raw_exhibits = get_all_exhibits()
     content_translations = translations(language)
@@ -48,7 +50,16 @@ render_admin(raw_exhibits, language)
 admin_mode = is_admin()
 if admin_mode and not st.sidebar.toggle(tr('👁 Xem giao diện khách', '👁 Preview visitor view', '👁 预览游客界面'), key='admin_preview'):
     st.stop()
-st.sidebar.caption(tr('Vị trí mô phỏng bằng bấm bản đồ; chưa kết nối GPS thiết bị.', 'Position is simulated by map clicks; device GPS is not connected.', '位置通过点击地图模拟；尚未连接设备 GPS。'))
+st.markdown(ui.hero(
+    HERO_TITLE,
+    tr('Hướng dẫn viên bỏ túi cho chuyến tham quan tự túc: đến gần một khu là nghe thuyết minh, cần đi đâu thì app chỉ đường đi bộ theo lối thật trong vườn.',
+       'Your pocket guide for a self-guided visit: walk up to a zone to hear its story, and get walking directions along the real paths of the garden.',
+       '自助游览的随身导游：走近展区即可收听讲解，需要去哪里，系统会沿园内真实步道为您指路。'),
+    tr('Vườn thú và vườn thực vật mở cửa từ năm 1864', 'A zoo and botanical garden open since 1864', '自1864年开放的动物园与植物园'),
+    [tr('Chạm vào bản đồ hoặc chọn một khu trong menu', 'Tap the map or pick a zone from the menu', '点击地图或在菜单中选择展区'),
+     tr('Trong vòng 50 m, thuyết minh tự phát', 'Within 50 m, the narration plays by itself', '进入50米范围，讲解自动播放'),
+     tr('Bấm "Tìm đường" để đi bộ tới khu tiếp theo', 'Press "Find route" to walk to the next zone', '点击"查找路线"步行前往下一个展区')]),
+    unsafe_allow_html=True)
 if 'user_lat' not in st.session_state:
     st.session_state.user_lat = 10.78775
 if 'user_lng' not in st.session_state:
@@ -98,16 +109,23 @@ else:
         st.session_state.narration = (visitor_id, user_pos, target_raw['id'])
         if visitor_id:
             tracking_call(tracking.mark_visited, visitor_id, target_raw['id'])
+def zone_color(item):
+    return COLOR_PALETTE.get(next(x['name'] for x in raw_exhibits if x['id'] == item['id']), ui.LEAF)
+
+
+def zone_dot(item):
+    return ui.ZONE_DOT.get(zone_color(item), '🟢')
+
+
 with st.sidebar:
-    st.header(tr('🎮 Bảng Điều Khiển', '🎮 Controls', '🎮 控制面板'))
-    st.subheader(tr('1. Tìm kiếm vị trí', '1. Search places', '1. 搜索地点'))
-    keyword = st.text_input(tr('Gõ tên hoặc đặc điểm:', 'Name or description:', '名称或特征：'), placeholder=tr('voi, hổ, bò sát, vườn lan...', 'elephants, tigers, orchids...', '大象、老虎、兰花...'))
+    st.subheader(tr('Tìm một khu', 'Find a zone', '查找展区'))
+    keyword = st.text_input(tr('Tên hoặc con vật', 'Name or animal', '名称或动物'), placeholder=tr('voi, hổ, bò sát, vườn lan...', 'elephants, tigers, orchids...', '大象、老虎、兰花...'))
     if keyword:
         results = [item for item in all_exhibits if keyword.lower() in item["name"].lower() or keyword.lower() in item['description'].lower()]
         if results:
             st.write(tr(f'Kết quả tìm kiếm ({len(results)}):', f'Search results ({len(results)}):', f'搜索结果（{len(results)}）：'))
             for r in results:
-                if st.button(r["name"], key=f'search_{r["id"]}', use_container_width=True):
+                if st.button(f'{zone_dot(r)} {r["name"]}', key=f'search_{r["id"]}', use_container_width=True):
                     st.session_state.user_lat = r['lat']
                     st.session_state.user_lng = r['lng']
                     st.session_state.img_index = 0
@@ -115,44 +133,50 @@ with st.sidebar:
                     st.rerun()
         else:
             st.warning(tr('Không tìm thấy kết quả.', 'No results found.', '未找到结果。'))
-    st.markdown('---')
-    st.subheader(tr('2. Chọn Nhanh Phân Khu', '2. Choose a zone', '2. 快速选择展区'))
+    st.subheader(tr('Các khu tham quan', 'Zones', '展区'))
     for item in all_exhibits:
-        if st.button(item["name"], key=f'select_{item["id"]}', use_container_width=True):
+        if st.button(f'{zone_dot(item)} {item["name"]}', key=f'select_{item["id"]}', use_container_width=True):
             st.session_state.user_lat = item['lat']
             st.session_state.user_lng = item['lng']
             st.session_state.img_index = 0
             st.session_state.target_route_id = None
             st.rerun()
-    st.markdown('---')
-    st.subheader(tr('🚶 Dẫn Đường Đi Bộ', '🚶 Walking directions', '🚶 步行导航'))
+    st.subheader(tr('Đi bộ tới', 'Walk to', '步行前往'))
     route_options = {item["id"]: item["name"] for item in all_exhibits}
-    selected_target = st.selectbox(tr('Chọn địa điểm muốn đến:', 'Choose a destination:', '选择目的地：'), options=list(route_options.keys()), format_func=lambda x: route_options[x])
+    selected_target = st.selectbox(tr('Điểm đến', 'Destination', '目的地'), options=list(route_options.keys()), format_func=lambda x: route_options[x])
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
-        if st.button(tr('🗺️ Tìm đường', '🗺️ Find route', '🗺️ 查找路线'), use_container_width=True):
+        if st.button(tr('Tìm đường', 'Find route', '查找路线'), type='primary', use_container_width=True):
             st.session_state.target_route_id = selected_target
             st.rerun()
     with col_btn2:
-        if st.button(tr('❌ Xóa đường', '❌ Clear route', '❌ 清除路线'), use_container_width=True):
+        if st.button(tr('Xóa đường', 'Clear route', '清除路线'), use_container_width=True):
             st.session_state.target_route_id = None
             st.rerun()
-    st.caption(tr('Bán kính phát hiện GPS: **50 mét**', 'Detection radius: **50 metres**', '检测半径：**50 米**'))
+    st.caption(tr('Vị trí được mô phỏng bằng cách chạm vào bản đồ. Thuyết minh tự phát khi bạn cách một khu dưới 50 m.',
+                  'Your position is simulated by tapping the map. Narration plays when you are within 50 m of a zone.',
+                  '通过点击地图模拟您的位置。距离展区50米以内时自动播放讲解。'))
 col_map, col_info = st.columns([7, 5])
 with col_map:
-    st.subheader(tr('📍 Bản đồ Thảo Cầm Viên', '📍 Saigon Zoo and Botanical Gardens map', '📍 西贡动植物园地图'))
-    fmap = folium.Map(location=[st.session_state.user_lat, st.session_state.user_lng], zoom_start=18, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', attr='Esri')
+    st.subheader(tr('Bản đồ Thảo Cầm Viên', 'Garden map', '园区地图'))
+    route_box = st.container()
+    fmap = folium.Map(location=[st.session_state.user_lat, st.session_state.user_lng], zoom_start=18, tiles=None, control_scale=True)
+    # Nền sáng để màu các khu nổi bật; vẫn chuyển được sang bản đồ Esri quen thuộc
+    folium.TileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+                     attr='&copy; OpenStreetMap contributors &copy; CARTO', name=tr('Bản đồ sáng', 'Light map', '浅色地图'), max_zoom=20).add_to(fmap)
+    folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+                     attr='Esri', name='Esri', max_zoom=20).add_to(fmap)
     for w in all_walkways:
         if w.get('geom_json'):
             w_geo = json.loads(w['geom_json'])
             w_coords = [(pt[1], pt[0]) for pt in w_geo['coordinates']]
-            folium.PolyLine(w_coords, color='#7f8c8d', weight=3, opacity=0.6, tooltip=tr(f'Lối đi bộ: {w["name"]}', f'Walkway: {w["name"]}', f'步行道：{w["name"]}')).add_to(fmap)
+            folium.PolyLine(w_coords, color='#8FA596', weight=2.5, opacity=0.7, tooltip=tr(f'Lối đi bộ: {w["name"]}', f'Walkway: {w["name"]}', f'步行道：{w["name"]}')).add_to(fmap)
     for item in all_exhibits:
-        color = COLOR_PALETTE.get(next(x["name"] for x in raw_exhibits if x["id"] == item["id"]), '#3388ff')
+        color = zone_color(item)
         if item.get('poly_geojson'):
             geo_data = json.loads(item['poly_geojson'])
-            folium.GeoJson(geo_data, name=tr(f'Ranh giới: {item["name"]}', f'Boundary: {item["name"]}', f'边界：{item["name"]}'), style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 2, 'fillOpacity': 0.35}, tooltip=f'<b>{item["name"]}</b>').add_to(fmap)
-        folium.Marker(location=[item['lat'], item['lng']], tooltip=html.escape(item["name"]), popup=html.escape(item["name"]), icon=folium.Icon(color='green', icon='leaf', prefix='fa')).add_to(fmap)
+            folium.GeoJson(geo_data, name=tr(f'Ranh giới: {item["name"]}', f'Boundary: {item["name"]}', f'边界：{item["name"]}'), style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 2, 'fillOpacity': 0.28}, tooltip=f'<b>{item["name"]}</b>').add_to(fmap)
+        folium.Marker(location=[item['lat'], item['lng']], tooltip=html.escape(item["name"]), popup=html.escape(item["name"]), icon=folium.Icon(color=ui.ZONE_ICON.get(color, ('green', 'leaf'))[0], icon=ui.ZONE_ICON.get(color, ('green', 'leaf'))[1], prefix='fa')).add_to(fmap)
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item["id"] == st.session_state.target_route_id), None)
         if target_info:
@@ -170,13 +194,20 @@ with col_map:
                 target_pt = (target_info['lat'], target_info['lng'])
                 if full_walk_path[-1] != target_pt:
                     full_walk_path.append(target_pt)
-                folium.PolyLine(full_walk_path, color='#0055FF', weight=6, opacity=0.9, dash_array='8, 10', tooltip=tr(f'Lộ trình đi bộ đến {target_info["name"]}', f'Walking route to {target_info["name"]}', f'前往 {target_info["name"]} 的步行路线')).add_to(fmap)
-                st.info(tr(f'🚶 **Lộ trình đi bộ đến:** {target_info["name"]} (Cự ly ước tính: ~{int(total_distance)} mét)', f'🚶 **Walking route to:** {target_info["name"]} (Network distance: ~{int(total_distance)} m)', f'🚶 **步行前往：** {target_info["name"]}（路程约 {int(total_distance)} 米）'))
+                folium.PolyLine(full_walk_path, color=ui.LOTUS, weight=6, opacity=0.95, dash_array='1, 11', line_cap='round', tooltip=tr(f'Lộ trình đi bộ đến {target_info["name"]}', f'Walking route to {target_info["name"]}', f'前往 {target_info["name"]} 的步行路线')).add_to(fmap)
+                minutes = max(1, round(total_distance / 70))   # ~70 m/phút đi bộ thong thả
+                route_box.markdown('<div class="tcv-route">' + ui.esc(tr(f'Đường đi bộ tới {target_info["name"]}: khoảng {int(total_distance)} m, chừng {minutes} phút.',
+                    f'Walking route to {target_info["name"]}: about {int(total_distance)} m, roughly {minutes} min.',
+                    f'步行前往 {target_info["name"]}：约 {int(total_distance)} 米，大约 {minutes} 分钟。')).replace(ui.esc(target_info["name"]), '<strong>' + ui.esc(target_info["name"]) + '</strong>', 1) + '</div>', unsafe_allow_html=True)
             else:
-                st.warning(tr('Không tìm thấy đường đi bộ liên thông đến địa điểm này!', 'No connected walking route found.', '未找到可通行的步行路线！'))
-    folium.Marker(location=[st.session_state.user_lat, st.session_state.user_lng], tooltip=tr('Vị trí của bạn', 'Your position', '您的位置'), icon=folium.Icon(color='red', icon='user', prefix='fa')).add_to(fmap)
-    folium.Circle(location=[st.session_state.user_lat, st.session_state.user_lng], radius=50, color='#1a73e8', fill=True, fill_color='#4285f4', fill_opacity=0.2).add_to(fmap)
-    map_out = st_folium(fmap, width='100%', height=560, returned_objects=['last_clicked'])
+                route_box.warning(tr('Không tìm thấy lối đi bộ nối tới khu này. Hãy chọn một điểm xuất phát khác trên bản đồ.', 'No connected walking path reaches this zone. Try starting from another point on the map.', '没有可通往该展区的步道，请在地图上换一个起点。'))
+    folium.Marker(location=[st.session_state.user_lat, st.session_state.user_lng], tooltip=tr('Vị trí của bạn', 'Your position', '您的位置'), icon=folium.Icon(color='pink', icon='street-view', prefix='fa')).add_to(fmap)
+    folium.Circle(location=[st.session_state.user_lat, st.session_state.user_lng], radius=50, color=ui.LOTUS, weight=2, dash_array='6, 6', fill=True, fill_color=ui.LOTUS, fill_opacity=0.08).add_to(fmap)
+    folium.LayerControl(position='topright', collapsed=True).add_to(fmap)
+    map_out = st_folium(fmap, width='100%', height=580, returned_objects=['last_clicked'])
+    st.markdown(ui.legend([(item['name'], zone_color(item)) for item in all_exhibits],
+                          tr('Bạn đang ở đây (vòng 50 m)', 'You are here (50 m ring)', '您的位置（50米范围）'),
+                          tr('Đường đi bộ gợi ý', 'Suggested walking route', '建议步行路线')), unsafe_allow_html=True)
     if map_out and map_out.get('last_clicked'):
         c_lat = map_out['last_clicked']['lat']
         c_lng = map_out['last_clicked']['lng']
@@ -186,21 +217,22 @@ with col_map:
             st.session_state.img_index = 0
             st.rerun()
 with col_info:
-    st.subheader(tr('🎧 Hướng Dẫn Viên Thuyết Minh', '🎧 Visitor information', '🎧 语音导览'))
-    st.markdown(tr(f'**Tọa độ hiện tại:** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`', f'**Current coordinates:** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`', f'**当前坐标：** `{st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}`'))
+    st.subheader(tr('Thuyết minh', 'Narration', '语音讲解'))
     if target_raw:
         target = with_vietnamese_name(localize(target_raw, language, content_translations), target_raw['name'], language)
-        if not target['translated']:
-            st.info(tr('Chưa có bản dịch; hiển thị nội dung tiếng Việt.', 'Translation unavailable; showing Vietnamese content.', '暂无中文翻译，显示越南语内容。'))
-        st.success(tr(f'🎯 **Hiện vật gần nhất:** {target["name"]}', f'🎯 **Nearest zone:** {target["name"]}', f'🎯 **最近的展区：** {target["name"]}'))
-        st.markdown(tr(f'📏 **Khoảng cách:** `{target["distance_meters"]} mét`', f'📏 **Distance:** `{target["distance_meters"]} m`', f'📏 **距离：** `{target["distance_meters"]} 米`'))
-        st.write(target['description'])
+        dist = float(target['distance_meters'] or 0)
+        dist_text = (tr('Bạn đang ở trong khu này', 'You are inside this zone', '您正在该展区内') if dist < 1 else
+                     tr(f'Cách bạn {dist:.0f} m', f'{dist:.0f} m from you', f'距您 {dist:.0f} 米'))
+        st.markdown(ui.placard(target['name'], dist_text, target['description'], zone_color(target_raw),
+                               tr('Đang thuyết minh', 'Now playing', '正在讲解'),
+                               '' if target['translated'] else tr('', 'This zone has no English text yet, so the Vietnamese text is shown.', '该展区暂无中文内容，显示越南语原文。')),
+                    unsafe_allow_html=True)
         img_list = EXHIBIT_IMAGES.get(target["id"], [])
         valid_images = [img for img in img_list if os.path.exists(str(BASE / 'images' / img))]
         if valid_images:
             idx = st.session_state.img_index % len(valid_images)
             current_img_path = str(BASE / 'images' / valid_images[idx])
-            st.image(current_img_path, caption=f'{target["name"]} ({idx + 1}/{len(valid_images)})', use_container_width=True)
+            st.image(current_img_path, caption=f'{idx + 1}/{len(valid_images)}', use_container_width=True)
             c_prev, c_txt, c_next = st.columns([1, 2, 1])
             with c_prev:
                 if st.button(tr('◀ Trước', '◀ Previous', '◀ 上一张'), key='btn_img_prev', use_container_width=True):
@@ -210,8 +242,6 @@ with col_info:
                 if st.button(tr('Sau ▶', 'Next ▶', '下一张 ▶'), key='btn_img_next', use_container_width=True):
                     st.session_state.img_index = (idx + 1) % len(valid_images)
                     st.rerun()
-        else:
-            st.info(tr('💡 Đặt các file ảnh (.jpg) vào thư mục `images/` để hiển thị.', 'No pictures are available.', '暂无图片。'))
         audio_file = str((BASE / 'audio' / (target.get('audio_file') or '')).resolve())
         voice = tracking_call(generated_audio, *target['audio_key']) if target.get('audio_key') else None
         if voice:
@@ -223,7 +253,38 @@ with col_info:
             # Chưa có audio cho ngôn ngữ này (vd. tiếng Trung) -> tự đọc nội dung đang hiển thị
             st.audio(voice, format='audio/mp3', autoplay=True)
         else:
-            st.warning(tr('Đang chuẩn bị file âm thanh...', 'No narration available in this language.', '该语言暂无语音导览。'))
+            st.caption(tr('Khu này chưa có giọng đọc, bạn đọc phần chữ phía trên nhé.', 'No audio for this zone yet; please read the text above.', '该展区暂无语音，请阅读上方文字。'))
     else:
-        st.info(tr('🚶 Không có phân khu nào trong bán kính 50m. Hãy click vào các biểu tượng màu xanh lá trên bản đồ hoặc chọn ở danh mục bên trái!', '🚶 No zone within 50 m. Click the map or select a zone in the sidebar.', '🚶 50 米范围内没有展区。请点击地图或在左侧选择展区！'))
+        # Gợi ý khu gần nhất ngoài bán kính để khách biết đi tiếp đâu
+        closest = min(all_exhibits, key=lambda x: ui.haversine_m(st.session_state.user_lat, st.session_state.user_lng, x['lat'], x['lng']))
+        far = ui.haversine_m(st.session_state.user_lat, st.session_state.user_lng, closest['lat'], closest['lng'])
+        st.markdown(ui.empty_state(
+            tr('Chưa có khu nào trong vòng 50 m', 'No zone within 50 m yet', '50米内暂无展区'),
+            tr(f'Khu gần bạn nhất là {closest["name"]}, cách khoảng {far:.0f} m. Chọn khu đó ở mục "Đi bộ tới" rồi bấm Tìm đường, hoặc chạm thẳng vào bản đồ.',
+               f'The closest zone is {closest["name"]}, about {far:.0f} m away. Pick it under "Walk to" and press Find route, or tap the map.',
+               f'离您最近的是 {closest["name"]}，约 {far:.0f} 米。可在"步行前往"中选择并点击查找路线，或直接点击地图。')),
+            unsafe_allow_html=True)
+    st.markdown('<p class="tcv-coords">' + ui.esc(tr('Tọa độ', 'Coordinates', '坐标')) + f': {st.session_state.user_lat:.5f}, {st.session_state.user_lng:.5f}</p>', unsafe_allow_html=True)
+
+# ===== Thông tin kỹ thuật (cho người đánh giá đồ án) =====
+with st.expander(tr('Về hệ thống', 'About this system', '关于本系统')):
+    st.markdown(tr('''
+- **Lưu trữ không gian:** PostgreSQL + PostGIS trên Neon; ranh giới khu là `Polygon`, lối đi bộ là `LineString`, có chỉ mục GiST.
+- **Geofencing 50 m:** `ST_DWithin` trên kiểu `geography`, xếp hạng bằng window function và ưu tiên khu khách chưa ghé.
+- **Dẫn đường:** `pgr_dijkstra` (pgRouting) trên 1.192 đoạn lối đi lấy từ OpenStreetMap; điểm vào mạng tìm bằng KNN `<->`.
+- **Nội dung đa ngôn ngữ:** Việt / Anh / Trung, giọng đọc tạo bằng gTTS, bản dịch máy được kiểm tra bằng dịch ngược và bảng thuật ngữ.
+- **Bản đồ nền:** © OpenStreetMap contributors, © CARTO, Esri.
+''', '''
+- **Spatial storage:** PostgreSQL + PostGIS on Neon; zone boundaries as `Polygon`, walkways as `LineString`, GiST indexes.
+- **50 m geofencing:** `ST_DWithin` on `geography`, ranked with a window function that favours zones not yet visited.
+- **Routing:** `pgr_dijkstra` (pgRouting) over 1,192 OpenStreetMap walkway segments; network entry via KNN `<->`.
+- **Multilingual content:** Vietnamese / English / Chinese, gTTS narration, machine translations checked by back-translation and a glossary.
+- **Base maps:** © OpenStreetMap contributors, © CARTO, Esri.
+''', '''
+- **空间存储：** Neon 上的 PostgreSQL + PostGIS；展区边界为 `Polygon`，步道为 `LineString`，建有 GiST 索引。
+- **50米地理围栏：** 基于 `geography` 的 `ST_DWithin`，用窗口函数排序并优先未参观的展区。
+- **路径规划：** 在 1,192 段 OpenStreetMap 步道上运行 `pgr_dijkstra`（pgRouting），用 KNN `<->` 接入路网。
+- **多语言内容：** 越南语 / 英语 / 中文，gTTS 语音，机器翻译经回译和术语表校验。
+- **底图：** © OpenStreetMap contributors, © CARTO, Esri。
+'''))
 

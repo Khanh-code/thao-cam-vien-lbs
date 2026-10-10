@@ -5,6 +5,11 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore, Lock
 import pytest
 
+def page_text(app, css):
+    """Nội dung các khối HTML của giao diện (dải tiêu đề, thẻ thuyết minh...) theo lớp CSS."""
+    return [m.value for m in app.markdown if f'class="{css}"' in m.value]
+
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import auth
 import content
@@ -106,11 +111,11 @@ def test_guest_ui_languages_and_session_isolation(monkeypatch):
     app_path = str(Path(__file__).resolve().parents[1] / 'app.py')
     vietnamese = AppTest.from_file(app_path).run()
     assert not vietnamese.exception
-    assert 'Thảo Cầm Viên' in vietnamese.title[0].value
+    assert any('Thảo Cầm Viên Sài Gòn' in h for h in page_text(vietnamese, 'tcv-hero'))
     english = AppTest.from_file(app_path).run()
     english.sidebar.selectbox[0].select('en').run()
     assert not english.exception
-    assert english.title[0].value == 'Saigon Zoo and Botanical Gardens (Thảo Cầm Viên) – Visitor Guide'
+    assert any('Saigon Zoo and Botanical Gardens (Thảo Cầm Viên)' in h for h in page_text(english, 'tcv-hero'))
     assert vietnamese.sidebar.selectbox[0].value == 'vi'
     english.session_state['user_lat'] = 10.8
     assert vietnamese.session_state['user_lat'] == 10.78775
@@ -137,7 +142,7 @@ def test_original_images_and_narration_remain_available(monkeypatch):
     app.sidebar.selectbox[0].select('en').run()
     assert not app.exception
     assert len(app.get('image')) == 1 and len(app.get('audio')) == 1
-    assert any('Carnivore Zone' in item.value for item in app.success)
+    assert any('Carnivore Zone' in p for p in page_text(app, 'tcv-placard'))
     # Tiếng Anh: tự đọc đúng bản dịch mới, không phát file tiếng Việt
     assert spoken == [(content.ENGLISH['Khu Thú Ăn Thịt']['description'], 'en')]
 

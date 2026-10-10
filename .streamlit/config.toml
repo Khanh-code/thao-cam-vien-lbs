@@ -1,0 +1,11 @@
+# Giao diện chung của app (màu lấy theo Thảo Cầm Viên: xanh lá, xanh sương, hồng sen)
+[theme]
+base = "light"
+primaryColor = "#2E7D4F"
+backgroundColor = "#F2F6F1"
+secondaryBackgroundColor = "#DCE8DE"
+textColor = "#1C2B24"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
