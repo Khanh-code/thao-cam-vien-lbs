@@ -13,9 +13,13 @@ from config import COLOR_PALETTE, EXHIBIT_IMAGES
 from db_services import get_all_exhibits, get_all_walkways, query_nearby, get_shortest_path
 import tracking
 import ui
+import location
+import streamlit.components.v1 as components
 from zones import zone_images
 
 BASE = Path(__file__).resolve().parent
+# Thành phần theo dõi GPS liên tục (navigator.geolocation.watchPosition)
+gps_watch = components.declare_component('gps_watch', path=str(BASE / 'gps_component'))
 
 
 def database_read(operation, *args, **kwargs):
@@ -72,6 +76,46 @@ if 'img_index' not in st.session_state:
     st.session_state.img_index = 0
 if 'target_route_id' not in st.session_state:
     st.session_state.target_route_id = None
+
+# ===== Vị trí: mô phỏng (chạm bản đồ, mặc định) hoặc GPS thật, theo dõi liên tục như Google Maps =====
+zoo_lat = sum(x['lat'] for x in all_exhibits) / len(all_exhibits)
+zoo_lng = sum(x['lng'] for x in all_exhibits) / len(all_exhibits)
+gps_live = False   # True khi đang đi trong vườn với GPS bật -> bản đồ bám theo, dẫn đường trực tiếp
+st.sidebar.markdown('<div class="tcv-side-title">' + ui.esc(tr('Vị trí của bạn', 'Your position', '您的位置')) + '</div>', unsafe_allow_html=True)
+if st.sidebar.toggle(tr('Dùng GPS của tôi', 'Use my GPS', '使用我的GPS'), key='use_gps'):
+    with st.sidebar:
+        try:
+            gps_raw = gps_watch(min_move_m=3, resend_s=30, key='gps_watch', default=None)
+        except Exception:
+            logging.exception('GPS component failed')
+            gps_raw = {'error': {'message': 'unavailable'}}
+    gps = location.interpret(gps_raw, zoo_lat, zoo_lng)
+    if gps['status'] == 'inside':
+        gps_live = True
+        reading = (round(gps['lat'], 6), round(gps['lng'], 6))
+        if st.session_state.get('last_gps') != reading:   # chỉ dùng khi có số đo GPS mới
+            if st.session_state.get('last_gps') is None:
+                st.session_state.img_index = 0
+            st.session_state.last_gps = reading
+            st.session_state.user_lat, st.session_state.user_lng = gps['lat'], gps['lng']
+        acc = f' (±{gps["accuracy_m"]} m)' if gps['accuracy_m'] is not None else ''
+        st.sidebar.caption(tr(f'Đang theo dõi vị trí GPS{acc}. Bản đồ sẽ di chuyển theo bạn.',
+                              f'Following your GPS position{acc}. The map moves with you.',
+                              f'正在跟踪GPS位置{acc}，地图将随您移动。'))
+    elif gps['status'] == 'outside':
+        km = gps['distance_m'] / 1000
+        # Khoảng cách THẬT: từ toạ độ GPS của bạn tới khuôn viên vườn (haversine, đường chim bay)
+        st.sidebar.info(tr(f'Bạn đang ở ngoài Thảo Cầm Viên (cách khoảng {km:.1f}'.replace('.', ',') + ' km đường chim bay).',
+                           f'You are outside the garden (about {km:.1f} km in a straight line).',
+                           f'您不在园区内（直线距离约 {km:.1f} 公里）。'))
+    elif gps['status'] == 'error':
+        st.sidebar.warning(tr('Không lấy được vị trí. Hãy cho phép trình duyệt truy cập vị trí.',
+                              'Could not get your position. Please allow location access in the browser.',
+                              '无法获取位置，请允许浏览器访问位置。'))
+    else:
+        st.sidebar.caption(tr('Đang lấy vị trí GPS...', 'Getting your GPS position...', '正在获取GPS位置…'))
+else:
+    st.session_state.pop('last_gps', None)
 
 
 # ===== Tài khoản khách tạm (tạo khi quét QR) + lưu vết lộ trình =====
@@ -162,9 +206,9 @@ with st.sidebar:
         if st.button(tr('Xóa đường', 'Clear route', '清除路线'), use_container_width=True):
             st.session_state.target_route_id = None
             st.rerun()
-    st.caption(tr('Vị trí của bạn được mô phỏng bằng cách chạm vào bản đồ. Thuyết minh tự phát khi bạn cách một khu dưới 50 m.',
-                  'Your position is simulated by tapping the map. Narration plays when you are within 50 m of a zone.',
-                  '通过点击地图模拟您的位置。距离展区50米以内时自动播放讲解。'))
+    st.caption(tr('Chạm vào bản đồ để chọn vị trí, hoặc bật "Dùng GPS của tôi" khi đang ở Thảo Cầm Viên. Thuyết minh tự phát khi bạn cách một khu dưới 50 m.',
+                  'Tap the map to set your position, or turn on "Use my GPS" inside the garden. Narration plays within 50 m of a zone.',
+                  '点击地图设定位置，或在园内打开"使用我的GPS"。距离展区50米以内时自动播放讲解。'))
 
 # ===== Ảnh bìa =====
 st.markdown(ui.hero(
@@ -176,16 +220,23 @@ st.markdown(ui.hero(
     tr('Cổng chính, đường Nguyễn Bỉnh Khiêm', 'Main gate (Thảo Cầm Viên), Nguyễn Bỉnh Khiêm street', '正门（Thảo Cầm Viên），Nguyễn Bỉnh Khiêm 街')),
     unsafe_allow_html=True)
 
+# ===== Dẫn đường: tới nơi chưa? (khu đích đang được thuyết minh = đã vào vùng 50 m của khu đó) =====
+arrived_name = None
+if st.session_state.target_route_id and target_raw and target_raw['id'] == st.session_state.target_route_id:
+    arrived_name = next((x['name'] for x in all_exhibits if x['id'] == target_raw['id']), '')
+    st.session_state.target_route_id = None
+
 col_map, col_info = st.columns([7, 5], gap='large')
 with col_map:
-    st.markdown(ui.section(tr('Bản đồ', 'Map', '地图'), tr('Chạm vào bản đồ để di chuyển', 'Tap the map to move', '点击地图移动')), unsafe_allow_html=True)
+    st.markdown(ui.section(tr('Bản đồ', 'Map', '地图'),
+                           tr('Bản đồ đang đi theo bạn', 'The map follows you', '地图正在跟随您') if gps_live else
+                           tr('Chạm vào bản đồ để di chuyển', 'Tap the map to move', '点击地图移动')), unsafe_allow_html=True)
     route_box = st.container()
-    fmap = folium.Map(location=[st.session_state.user_lat, st.session_state.user_lng], zoom_start=18, tiles=None, control_scale=True)
-    # Nền sáng để màu các khu nổi bật; vẫn chuyển được sang bản đồ Esri
-    folium.TileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-                     attr='&copy; OpenStreetMap contributors &copy; CARTO', name=tr('Bản đồ sáng', 'Light map', '浅色地图'), max_zoom=20).add_to(fmap)
-    folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-                     attr='Esri', name='Esri', max_zoom=20).add_to(fmap)
+    if arrived_name:
+        route_box.success(tr(f'Bạn đã tới {arrived_name}.', f'You have arrived at {arrived_name}.', f'您已到达 {arrived_name}。'))
+    # Lớp tĩnh (vẽ một lần): nền, lối đi, các khu. Tâm cố định để bản đồ không phải tải lại khi bạn di chuyển.
+    fmap = folium.Map(location=[zoo_lat, zoo_lng], zoom_start=18, tiles=None, control_scale=True)
+    layer_control = ui.add_base_layers(fmap, tr('Bản đồ', 'Map', '地图'), tr('Ảnh vệ tinh', 'Satellite', '卫星图'), control=False)
     for w in all_walkways:
         if w.get('geom_json'):
             w_coords = [(pt[1], pt[0]) for pt in json.loads(w['geom_json'])['coordinates']]
@@ -200,6 +251,9 @@ with col_map:
         icon_color, icon_name = ui.ZONE_ICON.get(color, ('darkgreen', 'leaf'))
         folium.Marker(location=[item['lat'], item['lng']], tooltip=html.escape(item['name']), popup=html.escape(item['name']),
                       icon=folium.Icon(color=icon_color, icon=icon_name, prefix='fa')).add_to(fmap)
+
+    # Lớp động (cập nhật mỗi lần bạn di chuyển, không tải lại bản đồ): vị trí, vòng 50 m, đường đi
+    live = folium.FeatureGroup(name=tr('Vị trí và đường đi', 'Position and route', '位置与路线'))
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item['id'] == st.session_state.target_route_id), None)
         if target_info:
@@ -216,28 +270,36 @@ with col_map:
                 if full_walk_path[-1] != target_pt:
                     full_walk_path.append(target_pt)
                 folium.PolyLine(full_walk_path, color=ui.LOTUS, weight=6, opacity=0.95, dash_array='1, 11', line_cap='round',
-                                tooltip=tr(f'Đường đi bộ tới {target_info["name"]}', f'Walking route to {target_info["name"]}', f'前往 {target_info["name"]} 的步行路线')).add_to(fmap)
+                                tooltip=tr(f'Đường đi bộ tới {target_info["name"]}', f'Walking route to {target_info["name"]}', f'前往 {target_info["name"]} 的步行路线')).add_to(live)
                 minutes = max(1, round(total_distance / 70))   # ~70 m/phút đi bộ thong thả
-                route_box.markdown(ui.route_line(
-                    tr('Đường đi bộ tới ', 'Walking route to ', '步行前往 '), target_info['name'],
-                    tr(f': khoảng {int(total_distance)} m, chừng {minutes} phút.', f': about {int(total_distance)} m, roughly {minutes} min.',
-                       f'：约 {int(total_distance)} 米，大约 {minutes} 分钟。')), unsafe_allow_html=True)
+                if gps_live:   # đang đi thật: hiện quãng đường còn lại, tự tính lại khi bạn di chuyển
+                    route_box.markdown(ui.route_line(
+                        tr('Đang dẫn đường tới ', 'Navigating to ', '正在导航至 '), target_info['name'],
+                        tr(f': còn khoảng {int(total_distance)} m, chừng {minutes} phút.', f': about {int(total_distance)} m left, roughly {minutes} min.',
+                           f'：还剩约 {int(total_distance)} 米，大约 {minutes} 分钟。')), unsafe_allow_html=True)
+                else:
+                    route_box.markdown(ui.route_line(
+                        tr('Đường đi bộ tới ', 'Walking route to ', '步行前往 '), target_info['name'],
+                        tr(f': khoảng {int(total_distance)} m, chừng {minutes} phút.', f': about {int(total_distance)} m, roughly {minutes} min.',
+                           f'：约 {int(total_distance)} 米，大约 {minutes} 分钟。')), unsafe_allow_html=True)
             else:
                 route_box.warning(tr('Không tìm thấy lối đi bộ nối tới khu này. Hãy chọn một điểm xuất phát khác trên bản đồ.',
                                      'No connected walking path reaches this zone. Try starting from another point on the map.',
                                      '没有可通往该展区的步道，请在地图上换一个起点。'))
     folium.Marker(location=[st.session_state.user_lat, st.session_state.user_lng], tooltip=tr('Bạn đang ở đây', 'You are here', '您在这里'),
-                  icon=folium.Icon(color='pink', icon='street-view', prefix='fa')).add_to(fmap)
+                  icon=folium.Icon(color='pink', icon='street-view', prefix='fa')).add_to(live)
     folium.Circle(location=[st.session_state.user_lat, st.session_state.user_lng], radius=50, color=ui.LOTUS, weight=2, dash_array='6, 6',
-                  fill=True, fill_color=ui.LOTUS, fill_opacity=0.07).add_to(fmap)
-    folium.LayerControl(position='topright', collapsed=True).add_to(fmap)
-    map_out = st_folium(fmap, width='100%', height=600, returned_objects=['last_clicked'])
+                  fill=True, fill_color=ui.LOTUS, fill_opacity=0.07).add_to(live)
+    map_out = st_folium(fmap, key='visitor_map', width='100%', height=600, returned_objects=['last_clicked'],
+                        center=(st.session_state.user_lat, st.session_state.user_lng),
+                        feature_group_to_add=live, layer_control=layer_control)
     st.markdown(ui.legend([(item['name'], zone_color(item)) for item in all_exhibits],
                           tr('Bạn đang ở đây, vòng 50 m', 'You are here, 50 m ring', '您的位置，50米范围'),
                           tr('Đường đi bộ gợi ý', 'Suggested walking route', '建议步行路线')), unsafe_allow_html=True)
     if map_out and map_out.get('last_clicked'):
         c_lat, c_lng = map_out['last_clicked']['lat'], map_out['last_clicked']['lng']
-        if round(c_lat, 5) != round(st.session_state.user_lat, 5) or round(c_lng, 5) != round(st.session_state.user_lng, 5):
+        if (round(c_lat, 5), round(c_lng, 5)) != st.session_state.get('last_click'):
+            st.session_state.last_click = (round(c_lat, 5), round(c_lng, 5))
             st.session_state.user_lat, st.session_state.user_lng = c_lat, c_lng
             st.session_state.img_index = 0
             st.rerun()

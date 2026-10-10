@@ -142,8 +142,6 @@ def _draw_map(key, exhibits, editing=None):
     if editing:
         lat, lng = editing['lat'], editing['lng']
     m = folium.Map(location=[lat, lng], zoom_start=18, tiles=None)
-    folium.TileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-                     attr='&copy; OpenStreetMap contributors &copy; CARTO', max_zoom=20).add_to(m)
     for x in exhibits:
         if x.get('poly_geojson'):
             mine = editing is not None and x['id'] == editing['id']
@@ -151,6 +149,9 @@ def _draw_map(key, exhibits, editing=None):
                            style_function=lambda _, mine=mine, c=x.get('color') or '#1F5C43': {
                                'color': c if mine else '#7C8A80', 'weight': 2, 'dashArray': '6 6' if mine else None,
                                'fillColor': c if mine else '#7C8A80', 'fillOpacity': 0.15 if mine else 0.25}).add_to(m)
+    # Mặc định ảnh vệ tinh để admin vẽ theo đúng hàng rào / mái chuồng thật
+    import ui
+    ui.add_base_layers(m, 'Bản đồ', 'Ảnh vệ tinh', imagery_first=True)
     Draw(draw_options={'polygon': {'allowIntersection': False, 'showArea': True}, 'rectangle': True,
                        'polyline': False, 'circle': False, 'marker': False, 'circlemarker': False},
          edit_options={'edit': False, 'remove': True}).add_to(m)

@@ -42,6 +42,21 @@ p, li {{ line-height: 1.6; }}
 .tcv-side-title {{ font-size: .82rem; font-weight: 600; color: var(--muted); margin: 18px 0 6px; }}
 .tcv-side-title:first-child {{ margin-top: 4px; }}
 
+/* Ô nhập: luôn có nền trắng + viền rõ (không phải bấm vào mới thấy), viền xanh khi đang nhập.
+   Áp dụng cho cả Streamlit mới (stTextInputRootElement...) và bản cũ (data-baseweb). */
+[data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"], [data-testid="stNumberInputContainer"],
+[data-testid="stSelectbox"] [role="group"], [data-testid="stDateInput"] [role="group"],
+[data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] > div {{
+  background: #fff !important; border: 1px solid #C3CEC6 !important; border-radius: 8px !important; }}
+[data-testid="stTextInputRootElement"]:focus-within, [data-testid="stTextAreaRootElement"]:focus-within,
+[data-testid="stSelectbox"] [role="group"]:focus-within, [data-testid="stDateInput"] [role="group"]:focus-within,
+[data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within, [data-baseweb="select"] > div:focus-within {{
+  border-color: var(--green) !important; box-shadow: 0 0 0 3px rgba(31,92,67,.12) !important; }}
+[data-testid="stTextInputRootElement"] input, [data-testid="stTextAreaRootElement"] textarea, [data-testid="stSelectbox"] input,
+[data-baseweb="input"] input, [data-baseweb="textarea"] textarea {{ background: #fff !important; color: var(--ink); }}
+[data-testid="stFileUploaderDropzone"] {{ background: #fff; border: 1px dashed #C3CEC6; border-radius: 8px; }}
+[data-testid="InputInstructions"] {{ display: none; }}
+
 /* Nút */
 .stButton button {{ border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink);
   font-weight: 500; box-shadow: none; }}
@@ -126,6 +141,27 @@ iframe[title="streamlit_folium.st_folium"] {{ border-radius: 14px; border: 1px s
 }}
 </style>
 """
+
+
+# Bản đồ nền: Esri (không cần khoá API). CARTO đã yêu cầu khoá API nên không dùng nữa.
+ESRI_STREET = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+ESRI_IMAGERY = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+ESRI_ATTR = 'Tiles &copy; Esri'
+IMAGERY_ATTR = 'Tiles &copy; Esri, Maxar, Earthstar Geographics'
+
+
+def add_base_layers(fmap, street_name, imagery_name, imagery_first=False, control=True):
+    """Thêm 2 lớp nền: bản đồ đường phố và ảnh vệ tinh (chuyển qua lại ở góc phải bản đồ).
+    control=False: trả về LayerControl để truyền cho st_folium (khi có lớp động feature_group_to_add)."""
+    import folium
+    layers = [folium.TileLayer(ESRI_STREET, attr=ESRI_ATTR, name=street_name, max_zoom=20, max_native_zoom=19),
+              folium.TileLayer(ESRI_IMAGERY, attr=IMAGERY_ATTR, name=imagery_name, max_zoom=20, max_native_zoom=19)]
+    for layer in (reversed(layers) if imagery_first else layers):
+        layer.add_to(fmap)
+    lc = folium.LayerControl(position='topright', collapsed=False)
+    if control:
+        lc.add_to(fmap)
+    return lc
 
 
 def esc(text):
