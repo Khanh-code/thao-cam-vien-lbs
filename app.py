@@ -77,13 +77,24 @@ if 'img_index' not in st.session_state:
 if 'target_route_id' not in st.session_state:
     st.session_state.target_route_id = None
 
+# ===== Ảnh bìa =====
+st.markdown(ui.hero(
+    tr('Thảo Cầm Viên Sài Gòn', 'Saigon Zoo and Botanical Gardens (Thảo Cầm Viên)', '西贡动植物园（Thảo Cầm Viên）'),
+    tr('Đi tới đâu, nghe kể tới đó. Muốn sang khu khác, app chỉ đường cho bạn.',
+       'Hear each zone’s story as you reach it. When you want to move on, the app shows you the way.',
+       '走到哪里，就听到哪里的故事。想去下一个展区，系统为您指路。'),
+    BASE / 'images' / 'cong_chinh.jpg',
+    tr('Cổng chính, đường Nguyễn Bỉnh Khiêm', 'Main gate (Thảo Cầm Viên), Nguyễn Bỉnh Khiêm street', '正门（Thảo Cầm Viên），Nguyễn Bỉnh Khiêm 街')),
+    unsafe_allow_html=True)
+
 # ===== Vị trí: mô phỏng (chạm bản đồ, mặc định) hoặc GPS thật, theo dõi liên tục như Google Maps =====
 zoo_lat = sum(x['lat'] for x in all_exhibits) / len(all_exhibits)
 zoo_lng = sum(x['lng'] for x in all_exhibits) / len(all_exhibits)
 gps_live = False   # True khi đang đi trong vườn với GPS bật -> bản đồ bám theo, dẫn đường trực tiếp
-st.sidebar.markdown('<div class="tcv-side-title">' + ui.esc(tr('Vị trí của bạn', 'Your position', '您的位置')) + '</div>', unsafe_allow_html=True)
-if st.sidebar.toggle(tr('Dùng GPS của tôi', 'Use my GPS', '使用我的GPS'), key='use_gps'):
-    with st.sidebar:
+# Đặt ngay trên bản đồ (không để ở thanh bên vì trên điện thoại thanh bên bị ẩn)
+gps_box = st.container(key='gps_box')
+if gps_box.toggle(tr('Dùng GPS của tôi', 'Use my GPS', '使用我的GPS'), key='use_gps'):
+    with gps_box:
         try:
             gps_raw = gps_watch(min_move_m=3, resend_s=30, key='gps_watch', default=None)
         except Exception:
@@ -99,21 +110,21 @@ if st.sidebar.toggle(tr('Dùng GPS của tôi', 'Use my GPS', '使用我的GPS')
             st.session_state.last_gps = reading
             st.session_state.user_lat, st.session_state.user_lng = gps['lat'], gps['lng']
         acc = f' (±{gps["accuracy_m"]} m)' if gps['accuracy_m'] is not None else ''
-        st.sidebar.caption(tr(f'Đang theo dõi vị trí GPS{acc}. Bản đồ sẽ di chuyển theo bạn.',
+        gps_box.caption(tr(f'Đang theo dõi vị trí GPS{acc}. Bản đồ sẽ di chuyển theo bạn.',
                               f'Following your GPS position{acc}. The map moves with you.',
                               f'正在跟踪GPS位置{acc}，地图将随您移动。'))
     elif gps['status'] == 'outside':
         km = gps['distance_m'] / 1000
         # Khoảng cách THẬT: từ toạ độ GPS của bạn tới khuôn viên vườn (haversine, đường chim bay)
-        st.sidebar.info(tr(f'Bạn đang ở ngoài Thảo Cầm Viên (cách khoảng {km:.1f}'.replace('.', ',') + ' km đường chim bay).',
+        gps_box.info(tr(f'Bạn đang ở ngoài Thảo Cầm Viên (cách khoảng {km:.1f}'.replace('.', ',') + ' km đường chim bay).',
                            f'You are outside the garden (about {km:.1f} km in a straight line).',
                            f'您不在园区内（直线距离约 {km:.1f} 公里）。'))
     elif gps['status'] == 'error':
-        st.sidebar.warning(tr('Không lấy được vị trí. Hãy cho phép trình duyệt truy cập vị trí.',
+        gps_box.warning(tr('Không lấy được vị trí. Hãy cho phép trình duyệt truy cập vị trí.',
                               'Could not get your position. Please allow location access in the browser.',
                               '无法获取位置，请允许浏览器访问位置。'))
     else:
-        st.sidebar.caption(tr('Đang lấy vị trí GPS...', 'Getting your GPS position...', '正在获取GPS位置…'))
+        gps_box.caption(tr('Đang lấy vị trí GPS...', 'Getting your GPS position...', '正在获取GPS位置…'))
 else:
     st.session_state.pop('last_gps', None)
 
@@ -210,15 +221,6 @@ with st.sidebar:
                   'Tap the map to set your position, or turn on "Use my GPS" inside the garden. Narration plays within 50 m of a zone.',
                   '点击地图设定位置，或在园内打开"使用我的GPS"。距离展区50米以内时自动播放讲解。'))
 
-# ===== Ảnh bìa =====
-st.markdown(ui.hero(
-    tr('Thảo Cầm Viên Sài Gòn', 'Saigon Zoo and Botanical Gardens (Thảo Cầm Viên)', '西贡动植物园（Thảo Cầm Viên）'),
-    tr('Đi tới đâu, nghe kể tới đó. Muốn sang khu khác, app chỉ đường cho bạn.',
-       'Hear each zone’s story as you reach it. When you want to move on, the app shows you the way.',
-       '走到哪里，就听到哪里的故事。想去下一个展区，系统为您指路。'),
-    BASE / 'images' / 'cong_chinh.jpg',
-    tr('Cổng chính, đường Nguyễn Bỉnh Khiêm', 'Main gate (Thảo Cầm Viên), Nguyễn Bỉnh Khiêm street', '正门（Thảo Cầm Viên），Nguyễn Bỉnh Khiêm 街')),
-    unsafe_allow_html=True)
 
 # ===== Dẫn đường: tới nơi chưa? (khu đích đang được thuyết minh = đã vào vùng 50 m của khu đó) =====
 arrived_name = None
@@ -245,7 +247,7 @@ with col_map:
     for item in all_exhibits:
         color = zone_color(item)
         if item.get('poly_geojson'):
-            folium.GeoJson(json.loads(item['poly_geojson']), name=item['name'],
+            folium.GeoJson(json.loads(item['poly_geojson']), name=item['name'], control=False,
                            style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 2, 'fillOpacity': 0.25},
                            tooltip=f'<b>{html.escape(item["name"])}</b>').add_to(fmap)
         icon_color, icon_name = ui.ZONE_ICON.get(color, ('darkgreen', 'leaf'))
@@ -253,7 +255,7 @@ with col_map:
                       icon=folium.Icon(color=icon_color, icon=icon_name, prefix='fa')).add_to(fmap)
 
     # Lớp động (cập nhật mỗi lần bạn di chuyển, không tải lại bản đồ): vị trí, vòng 50 m, đường đi
-    live = folium.FeatureGroup(name=tr('Vị trí và đường đi', 'Position and route', '位置与路线'))
+    live = folium.FeatureGroup(name=tr('Vị trí và đường đi', 'Position and route', '位置与路线'), control=False)
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item['id'] == st.session_state.target_route_id), None)
         if target_info:

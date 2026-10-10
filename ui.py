@@ -95,6 +95,14 @@ button:focus-visible, input:focus-visible {{ outline: 2px solid var(--lotus) !im
 .tcv-hero p {{ color: rgba(255,255,255,.88); font-size: 1.12rem; line-height: 1.5; margin: 0; max-width: 46ch; }}
 .tcv-credit {{ position: absolute; right: 14px; bottom: 10px; z-index: 1; font-size: .72rem; color: rgba(255,255,255,.6); }}
 
+/* Ô bật GPS: ngay trên bản đồ, hiện cả trên điện thoại */
+[class*="st-key-gps_box"] {{ background: var(--ground); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 14px 4px; margin: -8px 0 18px; }}
+[class*="st-key-gps_box"] [data-testid="stAlert"] {{ margin-bottom: 6px; }}
+/* Khung theo dõi GPS chạy ngầm: không chiếm chỗ (vẫn chạy, chỉ không hiển thị) */
+[class*="st-key-gps_box"] [data-testid="stElementContainer"]:has(iframe) {{ position: absolute; width: 1px; height: 1px;
+  overflow: hidden; opacity: 0; pointer-events: none; }}
+
 /* Tiêu đề khu vực */
 .tcv-section {{ font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 10px; color: var(--ink); }}
 .tcv-section small {{ font-size: .88rem; font-weight: 400; color: var(--muted); margin-left: 8px; letter-spacing: 0; }}
@@ -154,11 +162,12 @@ def add_base_layers(fmap, street_name, imagery_name, imagery_first=False, contro
     """Thêm 2 lớp nền: bản đồ đường phố và ảnh vệ tinh (chuyển qua lại ở góc phải bản đồ).
     control=False: trả về LayerControl để truyền cho st_folium (khi có lớp động feature_group_to_add)."""
     import folium
-    layers = [folium.TileLayer(ESRI_STREET, attr=ESRI_ATTR, name=street_name, max_zoom=20, max_native_zoom=19),
-              folium.TileLayer(ESRI_IMAGERY, attr=IMAGERY_ATTR, name=imagery_name, max_zoom=20, max_native_zoom=19)]
-    for layer in (reversed(layers) if imagery_first else layers):
-        layer.add_to(fmap)
-    lc = folium.LayerControl(position='topright', collapsed=False)
+    # show=... quyết định lớp nào đang bật khi mở bản đồ
+    folium.TileLayer(ESRI_STREET, attr=ESRI_ATTR, name=street_name, max_zoom=20, max_native_zoom=19,
+                     show=not imagery_first).add_to(fmap)
+    folium.TileLayer(ESRI_IMAGERY, attr=IMAGERY_ATTR, name=imagery_name, max_zoom=20, max_native_zoom=19,
+                     show=imagery_first).add_to(fmap)
+    lc = folium.LayerControl(position='topright', collapsed=True)   # thu gọn thành biểu tượng, không che bản đồ
     if control:
         lc.add_to(fmap)
     return lc

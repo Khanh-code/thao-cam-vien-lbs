@@ -145,7 +145,7 @@ def _draw_map(key, exhibits, editing=None):
     for x in exhibits:
         if x.get('poly_geojson'):
             mine = editing is not None and x['id'] == editing['id']
-            folium.GeoJson(json.loads(x['poly_geojson']), tooltip=x['name'],
+            folium.GeoJson(json.loads(x['poly_geojson']), tooltip=x['name'], control=False,
                            style_function=lambda _, mine=mine, c=x.get('color') or '#1F5C43': {
                                'color': c if mine else '#7C8A80', 'weight': 2, 'dashArray': '6 6' if mine else None,
                                'fillColor': c if mine else '#7C8A80', 'fillOpacity': 0.15 if mine else 0.25}).add_to(m)
@@ -404,8 +404,6 @@ def _visitor_stats(tr):
 def _qr_code(tr):
     with st.expander(tr('Mã QR vào web', 'Entry QR code')):
         url = PUBLIC_URL   # địa chỉ cố định trong Secrets ([app] public_url) để không in nhầm mã QR
-        st.caption(tr('In mã này ở cổng. Mỗi lần quét sẽ tạo một tài khoản khách tạm mới.',
-                      'Print this at the entrance. Each scan creates a new temporary visitor account.'))
         try:
             import qrcode
         except ImportError:
