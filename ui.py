@@ -129,7 +129,8 @@ button:focus-visible, input:focus-visible {{ outline: 2px solid var(--lotus) !im
 /* Chú thích + thông tin đường đi */
 .tcv-legend {{ display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .86rem; color: var(--muted); margin: 10px 2px 0; }}
 .tcv-legend span {{ display: inline-flex; align-items: center; gap: 7px; }}
-.tcv-legend b {{ width: 12px; height: 12px; border-radius: 3px; display: inline-block; opacity: .85; }}
+.tcv-legend b {{ width: 12px; height: 12px; border-radius: 50%; display: inline-block; opacity: .85; }}
+.tcv-legend-note {{ font-size: .86rem; color: var(--muted); margin: 10px 2px 0; }}
 .tcv-legend .you b {{ border-radius: 50%; background: var(--lotus); }}
 .tcv-legend .route b {{ width: 20px; height: 0; border-radius: 0; border-top: 3px dotted var(--lotus); }}
 .tcv-route {{ display: flex; gap: 10px; align-items: baseline; font-size: .98rem; padding: 10px 14px; margin-bottom: 10px;
@@ -225,6 +226,10 @@ def empty_state(title, body):
 
 def route_line(text_before, name, text_after):
     return f'<div class="tcv-route"><span>{esc(text_before)}<b>{esc(name)}</b>{esc(text_after)}</span></div>'
+
+
+def legend_note(text):
+    return f'<p class="tcv-legend-note">{esc(text)}</p>'
 
 
 def legend(zones, you_label, route_label):

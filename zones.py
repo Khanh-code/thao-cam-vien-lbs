@@ -18,6 +18,8 @@ from db_services import database_cursor, get_all_exhibits, query_nearby, zones_v
 import moderation
 
 MIN_AREA_M2, MAX_AREA_M2 = 20, 200_000
+# Vùng nghe thuyết minh hình tròn quanh điểm tham quan (thay cho vẽ ranh giới bằng tay)
+MIN_RADIUS_M, MAX_RADIUS_M, MAX_SUGGESTED_RADIUS_M = 10, 60, 40
 MAX_WALKWAY_GAP_M = 40
 MAX_IMAGE_SIDE = 1280
 
@@ -118,7 +120,60 @@ def check_name(name, exclude_id=None):
             raise ZoneError('duplicate_name', name)
 
 
-def create_zone(name, description, color, drawing):
+# ---------- Vùng tròn: tâm + bán kính ----------
+
+def circle(lat, lng, radius_m):
+    """Vòng tròn bán kính radius_m (mét thật, tính trên geography) quanh điểm -> GeoJSON Polygon."""
+    radius_m = float(radius_m)
+    if not MIN_RADIUS_M <= radius_m <= MAX_RADIUS_M:
+        raise ZoneError('bad_radius', f'{MIN_RADIUS_M}-{MAX_RADIUS_M}')
+    with database_cursor() as cur:
+        cur.execute("""SELECT ST_AsGeoJSON(ST_Buffer(ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, %s, 'quad_segs=16')::geometry) AS g""",
+                    (float(lng), float(lat), radius_m))
+        return json.loads(cur.fetchone()['g'])
+
+
+def suggest_radius(lat, lng, exclude_id=None):
+    """Bán kính gợi ý trong khoảng 10–40 m, không vượt quá:
+    - nửa khoảng cách tới TÂM khu gần nhất (chừa chỗ cho cả hai khu), và
+    - khoảng cách tới MÉP VÙNG của khu gần nhất (khu đó có thể đã có vùng lớn),
+    đều trừ 2 m an toàn -> vùng của hai khu không chồng lên nhau."""
+    active = 'e.is_active AND ' if zones_v2() else ''
+    with database_cursor() as cur:
+        cur.execute(f"""WITH me AS (SELECT ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography AS g)
+                       SELECT MIN(ST_Distance(e.geom::geography, me.g)) AS to_center,
+                              MIN(ST_Distance(COALESCE(e.geom_poly, e.geom)::geography, me.g)) AS to_edge
+                       FROM exhibits e, me WHERE {active}e.id IS DISTINCT FROM %s""",
+                    (float(lng), float(lat), exclude_id))
+        row = cur.fetchone()
+    if row['to_center'] is None:
+        return MAX_SUGGESTED_RADIUS_M
+    limit = min(row['to_center'] / 2, row['to_edge']) - 2
+    return int(max(MIN_RADIUS_M, min(MAX_SUGGESTED_RADIUS_M, limit)))
+
+
+def current_radius(exhibit_id):
+    """Bán kính tương đương của vùng hiện tại (từ diện tích) để làm giá trị mặc định khi sửa."""
+    with database_cursor() as cur:
+        cur.execute('SELECT sqrt(ST_Area(geom_poly::geography) / pi()) AS r FROM exhibits WHERE id = %s', (exhibit_id,))
+        row = cur.fetchone()
+    r = row['r'] if row and row['r'] else MAX_SUGGESTED_RADIUS_M
+    return int(max(MIN_RADIUS_M, min(MAX_RADIUS_M, round(r))))
+
+
+def create_zone_at(name, description, color, lat, lng, radius_m):
+    """Thêm khu bằng một điểm + bán kính: vùng tròn tự tạo (ST_Buffer), tâm đúng điểm đã chọn."""
+    require_admin()
+    return create_zone(name, description, color, circle(lat, lng, radius_m), center=(lat, lng))
+
+
+def move_zone(exhibit_id, lat, lng, radius_m):
+    """Đổi vị trí / bán kính vùng thuyết minh của khu."""
+    require_admin()
+    update_zone(exhibit_id, drawing=circle(lat, lng, radius_m), center=(lat, lng))
+
+
+def create_zone(name, description, color, drawing, center=None):
     """Thêm khu mới. Trả về id. Nội dung đa ngôn ngữ + giọng đọc do content.save_with_auto_translation tạo sau."""
     require_admin()
     _require_schema()
@@ -133,19 +188,28 @@ def create_zone(name, description, color, drawing):
         if cur.fetchone():
             raise ZoneError('duplicate_name', name)
         poly_sql = _poly_expr(cur)
+        center_sql = _center_sql(center)
         cur.execute('LOCK TABLE exhibits IN SHARE ROW EXCLUSIVE MODE')   # cấp id an toàn khi nhiều admin cùng thêm
         cur.execute(f"""
             INSERT INTO exhibits (id, name, description, color, is_active, geom_poly, geom)
             SELECT COALESCE(MAX(id), 0) + 1, %(name)s, %(desc)s, %(color)s, true,
-                   {poly_sql}, ST_PointOnSurface(ST_SetSRID(ST_GeomFromGeoJSON(%(poly)s), 4326))
+                   {poly_sql}, {center_sql}
             FROM exhibits
-            RETURNING id""", {'name': name, 'desc': description, 'color': color, 'poly': poly})
+            RETURNING id""", {'name': name, 'desc': description, 'color': color, 'poly': poly,
+                               'clat': center[0] if center else None, 'clng': center[1] if center else None})
         new_id = cur.fetchone()['id']
     _clear_caches()
     return new_id
 
 
-def update_zone(exhibit_id, name=None, description=None, color=None, drawing=None):
+def _center_sql(center):
+    """Tâm khu: điểm admin chọn (nếu có), nếu không thì ST_PointOnSurface (luôn nằm trong vùng)."""
+    if center:
+        return 'ST_SetSRID(ST_MakePoint(%(clng)s, %(clat)s), 4326)'
+    return 'ST_PointOnSurface(ST_SetSRID(ST_GeomFromGeoJSON(%(poly)s), 4326))'
+
+
+def update_zone(exhibit_id, name=None, description=None, color=None, drawing=None, center=None):
     """Sửa thông tin gốc của khu (tên, thuyết minh tiếng Việt, màu, ranh giới)."""
     require_admin()
     _require_schema()
@@ -172,7 +236,9 @@ def update_zone(exhibit_id, name=None, description=None, color=None, drawing=Non
     with database_cursor() as cur:
         if drawing is not None:
             poly_sql = _poly_expr(cur)
-            sets += [f'geom_poly = {poly_sql}', 'geom = ST_PointOnSurface(ST_SetSRID(ST_GeomFromGeoJSON(%(poly)s), 4326))']
+            sets += [f'geom_poly = {poly_sql}', f'geom = {_center_sql(center)}']
+            if center:
+                params.update(clat=center[0], clng=center[1])
         cur.execute(f"UPDATE exhibits SET {', '.join(sets)} WHERE id = %(id)s", params)
     _clear_caches()
 

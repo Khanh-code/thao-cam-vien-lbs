@@ -121,3 +121,62 @@ def test_images_are_resized_and_stored(admin):
     assert all(i != img_id for i, _ in zones.zone_images(zid))
     with pytest.raises(zones.ZoneError):
         zones.add_images(zid, [b'not an image'])
+
+
+# ---------- Vùng nghe thuyết minh hình tròn (tâm + bán kính) ----------
+
+def test_radius_limits():
+    for bad in (0, 5, 61, 500):
+        with pytest.raises(zones.ZoneError) as e:
+            zones.circle(10.78, 106.70, bad)
+        assert e.value.code == 'bad_radius'
+
+
+@needs_db
+def test_create_zone_at_point(admin, free_spot):
+    import math
+    lat, lng = free_spot['lat'], free_spot['lng']
+    r = zones.suggest_radius(lat, lng)
+    assert zones.MIN_RADIUS_M <= r <= zones.MAX_SUGGESTED_RADIUS_M
+    zid = zones.create_zone_at('Khu Hồng Hạc ' + uuid.uuid4().hex[:4], 'Đàn hồng hạc.', '#E91E63', lat, lng, r)
+    with db.database_cursor() as cur:
+        cur.execute('''SELECT ST_Y(geom) AS lat, ST_X(geom) AS lng, ST_Area(geom_poly::geography) AS area,
+                              ST_Within(geom, geom_poly) AS inside FROM exhibits WHERE id = %s''', (zid,))
+        row = cur.fetchone()
+    assert abs(row['lat'] - lat) < 1e-9 and abs(row['lng'] - lng) < 1e-9     # tâm đúng điểm đã chạm
+    assert abs(row['area'] - math.pi * r * r) / (math.pi * r * r) < 0.02      # đúng vòng tròn bán kính r
+    assert row['inside'] and zones.current_radius(zid) == r
+    # Khu kế bên: bán kính gợi ý không làm 2 vùng chồng nhau
+    near_lat, near_lng = lat, lng + 0.0006                                    # cách ~65 m
+    r2 = zones.suggest_radius(near_lat, near_lng)
+    assert r2 + r <= 66
+    # Đổi vị trí + bán kính
+    zones.move_zone(zid, lat + 0.0001, lng, 15)
+    assert zones.current_radius(zid) == 15
+    zones.delete_zone(zid)
+
+
+@needs_db
+def test_convert_existing_zones_to_circles():
+    """Chạy neon_vung_tron.sql trên bản sao database: mọi khu thành vòng tròn, không vùng nào chồng nhau."""
+    import subprocess
+    env = dict(os.environ, PGPASSWORD=os.getenv('POSTGRES_PASSWORD', ''))
+    run = lambda *a: subprocess.run(['psql', '-q', '-h', 'localhost', '-U', 'postgres', *a], env=env, check=True, capture_output=True, text=True)
+    run('-c', 'DROP DATABASE IF EXISTS tcv_circle_copy')
+    run('-c', 'CREATE DATABASE tcv_circle_copy')
+    dump = subprocess.run(['pg_dump', '-h', 'localhost', '-U', 'postgres', os.getenv('POSTGRES_DBNAME', 'tcv')],
+                          env=env, check=True, capture_output=True, text=True).stdout
+    subprocess.run(['psql', '-q', '-h', 'localhost', '-U', 'postgres', '-d', 'tcv_circle_copy'], input=dump,
+                   env=env, check=True, capture_output=True, text=True)
+    sql = Path(__file__).resolve().parents[1] / 'neon_vung_tron.sql'
+    out = run('-d', 'tcv_circle_copy', '-f', str(sql)).stdout
+    assert 'ban_kinh_m' in out
+    check = run('-d', 'tcv_circle_copy', '-At', '-c', '''
+        SELECT COUNT(*) FILTER (WHERE geom_poly IS NULL),
+               (SELECT COUNT(*) FROM exhibits a JOIN exhibits b ON a.id < b.id AND a.is_active AND b.is_active
+                 AND ST_Area(ST_Intersection(a.geom_poly, b.geom_poly)::geography) > 1),
+               MIN(sqrt(ST_Area(geom_poly::geography) / pi())), MAX(sqrt(ST_Area(geom_poly::geography) / pi()))
+        FROM exhibits WHERE is_active''').stdout.strip().split('|')
+    no_poly, overlaps, rmin, rmax = int(check[0]), int(check[1]), float(check[2]), float(check[3])
+    assert no_poly == 0 and overlaps == 0 and rmin >= 9.9 and rmax <= 40.1
+    run('-c', 'DROP DATABASE IF EXISTS tcv_circle_copy')

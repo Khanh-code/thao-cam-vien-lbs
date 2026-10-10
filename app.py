@@ -248,7 +248,8 @@ with col_map:
         color = zone_color(item)
         if item.get('poly_geojson'):
             folium.GeoJson(json.loads(item['poly_geojson']), name=item['name'], control=False,
-                           style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 2, 'fillOpacity': 0.25},
+                           # Vùng nghe thuyết minh (không phải hàng rào chuồng): nét đứt, màu nhạt
+                           style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 1.5, 'dashArray': '6 6', 'fillOpacity': 0.14},
                            tooltip=f'<b>{html.escape(item["name"])}</b>').add_to(fmap)
         icon_color, icon_name = ui.ZONE_ICON.get(color, ('darkgreen', 'leaf'))
         folium.Marker(location=[item['lat'], item['lng']], tooltip=html.escape(item['name']), popup=html.escape(item['name']),
@@ -295,6 +296,9 @@ with col_map:
     map_out = st_folium(fmap, key='visitor_map', width='100%', height=600, returned_objects=['last_clicked'],
                         center=(st.session_state.user_lat, st.session_state.user_lng),
                         feature_group_to_add=live, layer_control=layer_control)
+    st.markdown(ui.legend_note(tr('Vòng nét đứt quanh mỗi khu là vùng nghe thuyết minh: bước vào là app tự kể.',
+                                  'The dashed ring around each zone is its narration area: step inside and the story plays.',
+                                  '每个展区周围的虚线圈是讲解区域：走进去就会自动播放讲解。')), unsafe_allow_html=True)
     st.markdown(ui.legend([(item['name'], zone_color(item)) for item in all_exhibits],
                           tr('Bạn đang ở đây, vòng 50 m', 'You are here, 50 m ring', '您的位置，50米范围'),
                           tr('Đường đi bộ gợi ý', 'Suggested walking route', '建议步行路线')), unsafe_allow_html=True)

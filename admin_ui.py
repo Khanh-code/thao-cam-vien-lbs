@@ -120,10 +120,12 @@ ZONE_ERRORS = {
     'invalid': 'Ranh giới bị tự cắt nhau. Hãy vẽ lại theo một vòng, không để các cạnh cắt chéo.',
     'too_small': 'Khu quá nhỏ ({} m²), có thể do bấm nhầm. Hãy vẽ lại.',
     'too_big': 'Khu quá lớn ({} m²). Hãy vẽ sát ranh giới thật của khu.',
-    'overlap': 'Ranh giới chồng lên khu khác: {}. Hãy vẽ lại để hai khu không đè lên nhau.',
-    'far_from_paths': 'Khu nằm quá xa lối đi bộ nên khách không được chỉ đường tới. Hãy vẽ sát một lối đi trong vườn.',
+    'overlap': 'Vùng nghe thuyết minh chồng lên khu khác: {}. Hãy chọn điểm xa hơn hoặc giảm bán kính.',
+    'far_from_paths': 'Điểm này quá xa lối đi bộ nên khách không được chỉ đường tới. Hãy chọn điểm sát một lối đi trong vườn.',
     'duplicate_name': 'Đã có khu tên "{}". Hãy đặt tên khác.',
     'bad_image': 'Có file không phải ảnh hoặc ảnh bị lỗi.',
+    'no_point': 'Chưa chọn điểm trên bản đồ. Hãy chạm vào chỗ khách đứng xem khu.',
+    'bad_radius': 'Bán kính phải từ {} m.',
 }
 
 
@@ -132,32 +134,48 @@ def _zone_error(e):
     return msg.format(e.detail) if '{}' in msg else msg
 
 
-def _draw_map(key, exhibits, editing=None):
-    """Bản đồ để admin vẽ ranh giới. Trả về hình vừa vẽ (GeoJSON) hoặc None."""
+def _pick_map(key, exhibits, pick=None, radius=None, editing=None):
+    """Bản đồ ảnh vệ tinh để admin CHẠM chọn điểm tham quan. Vùng tròn xem trước vẽ quanh điểm đã chọn.
+    Trả về toạ độ vừa chạm (lat, lng) hoặc None."""
     import folium
-    from folium.plugins import Draw
     from streamlit_folium import st_folium
-    lat = sum(x['lat'] for x in exhibits) / len(exhibits) if exhibits else 10.7877
-    lng = sum(x['lng'] for x in exhibits) / len(exhibits) if exhibits else 106.7056
-    if editing:
-        lat, lng = editing['lat'], editing['lng']
-    m = folium.Map(location=[lat, lng], zoom_start=18, tiles=None)
-    for x in exhibits:
-        if x.get('poly_geojson'):
-            mine = editing is not None and x['id'] == editing['id']
-            folium.GeoJson(json.loads(x['poly_geojson']), tooltip=x['name'], control=False,
-                           style_function=lambda _, mine=mine, c=x.get('color') or '#1F5C43': {
-                               'color': c if mine else '#7C8A80', 'weight': 2, 'dashArray': '6 6' if mine else None,
-                               'fillColor': c if mine else '#7C8A80', 'fillOpacity': 0.15 if mine else 0.25}).add_to(m)
-    # Mặc định ảnh vệ tinh để admin vẽ theo đúng hàng rào / mái chuồng thật
     import ui
+    if pick:
+        lat, lng = pick
+    elif editing:
+        lat, lng = editing['lat'], editing['lng']
+    else:
+        lat = sum(x['lat'] for x in exhibits) / len(exhibits) if exhibits else 10.7877
+        lng = sum(x['lng'] for x in exhibits) / len(exhibits) if exhibits else 106.7056
+    m = folium.Map(location=[lat, lng], zoom_start=19, tiles=None)
     ui.add_base_layers(m, 'Bản đồ', 'Ảnh vệ tinh', imagery_first=True)
-    Draw(draw_options={'polygon': {'allowIntersection': False, 'showArea': True}, 'rectangle': True,
-                       'polyline': False, 'circle': False, 'marker': False, 'circlemarker': False},
-         edit_options={'edit': False, 'remove': True}).add_to(m)
-    out = st_folium(m, height=420, width='100%', key=key, returned_objects=['all_drawings', 'last_active_drawing']) or {}
-    drawings = out.get('all_drawings') or []
-    return drawings[-1] if drawings else out.get('last_active_drawing')
+    for x in exhibits:
+        if editing is not None and x['id'] == editing['id']:
+            continue
+        if x.get('poly_geojson'):   # vùng của các khu khác (để tránh chồng lên)
+            folium.GeoJson(json.loads(x['poly_geojson']), tooltip=x['name'], control=False,
+                           style_function=lambda _: {'color': '#FFFFFF', 'weight': 1.5, 'dashArray': '5 5',
+                                                     'fillColor': '#FFFFFF', 'fillOpacity': 0.18}).add_to(m)
+        folium.Marker([x['lat'], x['lng']], tooltip=x['name'], icon=folium.Icon(color='gray', icon='paw', prefix='fa')).add_to(m)
+    if pick and radius:
+        color = (editing or {}).get('color') or '#C8406E'
+        folium.Circle(pick, radius=radius, color=color, weight=3, dash_array='6 6', fill=True,
+                      fill_color=color, fill_opacity=0.25, tooltip=f'Vùng nghe thuyết minh: bán kính {radius} m').add_to(m)
+        folium.Marker(pick, icon=folium.Icon(color='pink', icon='map-marker', prefix='fa')).add_to(m)
+    out = st_folium(m, height=420, width='100%', key=key, returned_objects=['last_clicked']) or {}
+    clicked = out.get('last_clicked')
+    return (round(clicked['lat'], 6), round(clicked['lng'], 6)) if clicked else None
+
+
+def _radius_slider(key, pick, exclude_id=None, current=None):
+    """Thanh trượt bán kính. Mỗi lần chọn điểm mới, đặt sẵn giá trị gợi ý (không chồng khu khác)."""
+    marker = f'{key}_for'
+    if st.session_state.get(marker) != pick:
+        st.session_state[marker] = pick
+        st.session_state[key] = current or zones.suggest_radius(pick[0], pick[1], exclude_id)
+    suggested = zones.suggest_radius(pick[0], pick[1], exclude_id)
+    return st.slider('Bán kính vùng nghe thuyết minh (m)', zones.MIN_RADIUS_M, zones.MAX_RADIUS_M, key=key,
+                     help=f'Gợi ý: {suggested} m (bằng nửa khoảng cách tới khu gần nhất, để hai vùng không chồng nhau).')
 
 
 def _save_texts(exhibit_id, name, description, auto, translate_only=None):
@@ -296,13 +314,24 @@ def _edit_zone(exhibits):
                     if _run_save(lambda img_id=img_id: zones.delete_image(img_id)):
                         st.rerun()
 
-    # Vẽ lại ranh giới
-    with st.expander('Vẽ lại ranh giới'):
-        st.caption('Vùng nét đứt là ranh giới hiện tại. Vẽ ranh giới mới bằng công cụ đa giác hoặc hình chữ nhật, rồi bấm Lưu ranh giới.')
-        drawing = _draw_map(f'redraw_{exhibit_id}', exhibits, editing=original)
-        if st.button('Lưu ranh giới', key=f'save_shape_{exhibit_id}'):
-            if _run_save(lambda: zones.update_zone(exhibit_id, drawing=drawing)):
-                st.session_state['save_message'] = ('success', 'Đã lưu ranh giới mới.')
+    # Đổi vị trí / bán kính vùng nghe thuyết minh
+    with st.expander('Đổi vị trí vùng nghe thuyết minh'):
+        st.caption('Chạm vào điểm khách đứng xem khu này trên ảnh vệ tinh, chỉnh bán kính rồi bấm Lưu vị trí. '
+                   'Vùng tròn sẽ tự tạo quanh điểm đó.')
+        pick_key = f'move_pick_{exhibit_id}'
+        pick = st.session_state.get(pick_key) or (round(original['lat'], 6), round(original['lng'], 6))
+        current_r = zones.current_radius(exhibit_id) if pick == (round(original['lat'], 6), round(original['lng'], 6)) else None
+        radius = st.session_state.get(f'move_r_{exhibit_id}') or current_r or zones.MAX_SUGGESTED_RADIUS_M
+        clicked = _pick_map(f'move_map_{exhibit_id}', exhibits, pick=pick, radius=radius, editing=original)
+        if clicked and clicked != st.session_state.get(f'move_last_{exhibit_id}'):
+            st.session_state[f'move_last_{exhibit_id}'] = clicked
+            st.session_state[pick_key] = clicked
+            st.rerun()
+        radius = _radius_slider(f'move_r_{exhibit_id}', pick, exclude_id=exhibit_id, current=current_r)
+        if st.button('Lưu vị trí', key=f'save_move_{exhibit_id}'):
+            if _run_save(lambda: zones.move_zone(exhibit_id, pick[0], pick[1], radius)):
+                st.session_state.pop(pick_key, None)
+                st.session_state['save_message'] = ('success', f'Đã lưu vị trí mới (bán kính {radius} m).')
                 st.session_state['edit_saved'] = exhibit_id
                 st.rerun()
 
@@ -321,9 +350,19 @@ def _edit_zone(exhibits):
 
 
 def _new_zone(exhibits):
-    st.caption('Bước 1: vẽ ranh giới khu trên bản đồ (biểu tượng đa giác hoặc hình chữ nhật ở góc trái). '
-               'Bước 2: điền tên, thuyết minh rồi bấm Thêm phân khu.')
-    drawing = _draw_map('draw_new_zone', exhibits)
+    st.caption('Bước 1: chạm vào điểm khách đứng xem khu trên ảnh vệ tinh (lối vào chuồng hoặc chỗ ngắm). '
+               'Vùng nghe thuyết minh hình tròn sẽ tự tạo. Bước 2: điền tên, thuyết minh rồi bấm Thêm phân khu.')
+    pick = st.session_state.get('new_pick')
+    radius = st.session_state.get('new_r') if pick else None
+    clicked = _pick_map('new_zone_map', exhibits, pick=pick, radius=radius)
+    if clicked and clicked != st.session_state.get('new_last'):
+        st.session_state['new_last'] = clicked
+        st.session_state['new_pick'] = clicked
+        st.rerun()
+    if pick:
+        radius = _radius_slider('new_r', pick)
+    else:
+        st.info('Chưa chọn điểm. Hãy chạm vào bản đồ ở chỗ khách đứng xem khu mới.')
     with st.form('new_zone', clear_on_submit=False):
         name = st.text_input('Tên phân khu', max_chars=120, placeholder='Ví dụ: Khu Chim Cảnh')
         description = st.text_area('Thuyết minh (nội dung sẽ được đọc thành audio)', max_chars=5000, height=140)
@@ -336,7 +375,9 @@ def _new_zone(exhibits):
     if add:
         def action():
             zones.check_name(name, None)
-            new_id = zones.create_zone(name, description, color, drawing)
+            if not pick:
+                raise zones.ZoneError('no_point')
+            new_id = zones.create_zone_at(name, description, color, pick[0], pick[1], radius)
             msgs = []
             try:
                 kind, msg = _save_texts(new_id, name, description, auto)
@@ -347,6 +388,7 @@ def _new_zone(exhibits):
             if photos:
                 zones.add_images(new_id, [f.getvalue() for f in photos])
             st.session_state['new_round'] = st.session_state.get('new_round', 0) + 1
+            st.session_state.pop('new_pick', None)
             st.session_state['edit_id'] = new_id
             st.session_state['edit_saved'] = new_id
             st.session_state['save_message'] = (kind, f'Đã thêm "{name.strip()}". ' + ' '.join(msgs))
