@@ -147,3 +147,28 @@ def test_app_end_to_end_priority_and_tracking():
     assert not app.exception
     assert app.success[0].value != first
     assert len(tracking.visitor_track(vid)) == 3
+
+
+@needs_db
+def test_admin_sees_only_admin_tools_and_is_not_tracked():
+    from streamlit.testing.v1 import AppTest
+    from db_services import database_cursor
+    with database_cursor() as cur:
+        cur.execute('SELECT COUNT(*) AS n FROM visitors')
+        before = cur.fetchone()['n']
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=60).run()
+    inp = lambda label: next(t for t in app.sidebar.text_input if t.label == label)
+    inp('Tài khoản').input('admin'); inp('Mật khẩu').input('123456')
+    next(b for b in app.sidebar.button if 'Đăng nhập' in b.label).click().run()
+    assert not app.exception
+    headers = [h.value for h in app.header]
+    assert any('Trang quản trị' in h for h in headers)
+    assert not any('Bản đồ' in s.value for s in app.subheader)          # không có bản đồ / dẫn đường
+    assert not any('Bảng thuật ngữ' in e.label for e in app.expander)   # đã bỏ tab thuật ngữ
+    app.sidebar.toggle[0].set_value(True).run()                          # bật xem thử giao diện khách
+    assert any('Bản đồ' in s.value for s in app.subheader)
+    with database_cursor() as cur:
+        cur.execute('SELECT COUNT(*) AS n FROM visitors')
+        after = cur.fetchone()['n']
+    # Chỉ lượt mở trang trước khi đăng nhập được tính là khách; admin xem thử không tạo thêm
+    assert after - before <= 1

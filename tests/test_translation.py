@@ -158,3 +158,26 @@ def test_admin_ui_skips_unchanged_save(monkeypatch):
     next(b for b in app.button if 'Lưu & tạo' in b.label).click().run()   # bấm Lưu lại, không sửa gì
     assert calls == []                                                      # không tạo lại giọng đọc / không dịch lại
     assert any('giống hệt' in i.value for i in app.info)
+
+
+def test_engine_falls_back_to_mymemory(monkeypatch):
+    def google_down(*a): raise ConnectionError('blocked')
+    monkeypatch.setattr(translator, '_google', google_down)
+    monkeypatch.setattr(translator, '_mymemory', lambda t, s, d: 'hello')
+    assert translator._engine('xin chào', 'vi', 'en') == 'hello'
+    monkeypatch.setattr(translator, '_mymemory', google_down)
+    with pytest.raises(translator.TranslationError, match='Google.*MyMemory'):
+        translator._engine('xin chào', 'vi', 'en')
+
+
+def test_chunks_respect_limit():
+    text = ' '.join(['Câu số %d rất dài để thử.' % i for i in range(60)])
+    parts = translator._chunks(text, limit=100)
+    assert all(len(p) <= 100 for p in parts) and ' '.join(parts) == text
+
+
+def test_builtin_translation_counts_as_existing(monkeypatch):
+    monkeypatch.setattr(content, 'get_all_exhibits', lambda: [{'id': 9, 'name': 'Khu Bò Sát'}, {'id': 10, 'name': 'Khu Mới'}])
+    monkeypatch.setattr(content, 'translations', lambda lang: {})
+    assert content.missing_translations(9) == []            # đã có bản dịch dựng sẵn -> không dịch lại
+    assert content.missing_translations(10) == ['en', 'zh']  # khu mới chưa có bản dịch nào

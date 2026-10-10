@@ -14,10 +14,12 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from psycopg2.errors import UndefinedTable
 from auth import require_admin
+import moderation
 from db_services import database_cursor
 
 TARGETS = ('en', 'zh')
 ENGINE_CODE = {'vi': 'vi', 'en': 'en', 'zh': 'zh-CN'}
+MYMEMORY_CODE = {'vi': 'vi-VN', 'en': 'en-GB', 'zh': 'zh-CN'}
 GOOD, REVIEW = 0.75, 0.5          # >= GOOD: ✅ khớp | >= REVIEW: ⚠️ nên xem lại | thấp hơn: ❌ có thể sai nghĩa
 DEFAULT_GLOSSARY = json.loads((Path(__file__).resolve().parent / 'glossary.json').read_text(encoding='utf-8'))
 
@@ -26,16 +28,43 @@ class TranslationError(RuntimeError):
     """Không gọi được dịch vụ dịch (mất mạng, bị chặn...)."""
 
 
+def _chunks(text, limit=450):
+    """Cắt theo câu để không vượt giới hạn độ dài của dịch vụ dự phòng."""
+    parts, current = [], ''
+    for sentence in re.split(r'(?<=[.!?。！？])\s+', text):
+        if current and len(current) + len(sentence) + 1 > limit:
+            parts.append(current)
+            current = sentence
+        else:
+            current = f'{current} {sentence}'.strip()
+    return parts + ([current] if current else [])
+
+
+def _google(text, source, target):
+    from deep_translator import GoogleTranslator
+    return GoogleTranslator(source=ENGINE_CODE[source], target=ENGINE_CODE[target]).translate(text)
+
+
+def _mymemory(text, source, target):
+    from deep_translator import MyMemoryTranslator
+    tr = MyMemoryTranslator(source=MYMEMORY_CODE[source], target=MYMEMORY_CODE[target])
+    sep = '' if target == 'zh' else ' '
+    return sep.join(tr.translate(part) for part in _chunks(text))
+
+
 def _engine(text, source, target):
-    """Gọi máy dịch. Tách riêng để dễ thay dịch vụ khác / giả lập khi kiểm thử."""
-    try:
-        from deep_translator import GoogleTranslator
-        out = GoogleTranslator(source=ENGINE_CODE[source], target=ENGINE_CODE[target]).translate(text)
-    except Exception as e:
-        raise TranslationError(str(e)) from e
-    if not out or not out.strip():
-        raise TranslationError('Empty translation')
-    return out.strip()
+    """Gọi máy dịch: Google Dịch trước, lỗi thì tự chuyển sang MyMemory (dự phòng).
+    Tách riêng để dễ thay dịch vụ khác / giả lập khi kiểm thử."""
+    errors = []
+    for name, service in (('Google', _google), ('MyMemory', _mymemory)):
+        try:
+            out = service(text, source, target)
+            if out and out.strip() and 'MYMEMORY WARNING' not in out:
+                return out.strip()
+            errors.append(f'{name}: kết quả rỗng')
+        except Exception as e:
+            errors.append(f'{name}: {type(e).__name__}: {str(e)[:150]}')
+    raise TranslationError(' | '.join(errors))
 
 
 def glossary():
@@ -130,6 +159,7 @@ def translate_with_review(text_vi, target):
 def save_glossary(rows):
     """Admin lưu bảng thuật ngữ (thay toàn bộ phần admin quản lý trong database)."""
     require_admin()
+    moderation.check(*[str(r.get(k) or '') for r in rows for k in ('vi', 'en', 'zh')])
     clean = [(r['vi'].strip(), r['en'].strip(), r['zh'].strip()) for r in rows
              if (r.get('vi') or '').strip() and (r.get('en') or '').strip() and (r.get('zh') or '').strip()]
     with database_cursor() as cur:

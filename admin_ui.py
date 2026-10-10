@@ -7,6 +7,7 @@ from auth import is_admin, login, logout, change_password, MIN_PASSWORD_LENGTH
 from config import setting
 from content import (LANGUAGES, translations, localize, save_translation, generated_audio, AudioError,
                      save_with_auto_translation, check_translation, is_unchanged, missing_translations)
+from moderation import ProfanityError, mask
 import translator
 import tracking
 
@@ -57,8 +58,8 @@ def render_admin(exhibits, language):
         st.warning(tr('⚠️ Bạn đang dùng mật khẩu mặc định **123456**. Hãy bấm **🔑 Đổi mật khẩu** ở thanh bên trái.',
                       '⚠️ You are using the default password **123456**. Click **🔑 Change password** in the sidebar.'))
 
+    st.header(tr('🛠️ Trang quản trị', '🛠️ Administration'))
     _content_editor(exhibits, tr)
-    _glossary_editor(tr)
     _visitor_stats(tr)
     _qr_code(tr)
 
@@ -114,7 +115,7 @@ def _show_review(lang_label, text, back, score, missing=(), machine=True):
 
 
 def _content_editor(exhibits, tr):
-    with st.expander(tr('✏️ Biên tập nội dung', '✏️ Edit content')):
+    with st.expander(tr('✏️ Biên tập nội dung', '✏️ Edit content'), expanded=True):
         st.caption(tr('Chọn phân khu và ngôn ngữ, sửa nội dung rồi bấm Lưu. Hệ thống sẽ tự tạo giọng đọc đúng theo đoạn thuyết minh.',
                       'Choose a zone and language, edit the text and click Save. A matching voice narration is generated automatically.'))
         options = {x['id']: x['name'] for x in exhibits}
@@ -139,6 +140,8 @@ def _content_editor(exhibits, tr):
         if save and unchanged and not todo:
             # Không có gì mới -> không lưu lại, không tạo lại giọng đọc / không dịch lại
             save = False
+            st.session_state.pop('edit_saved', None)      # không hiện lại thông báo "đã lưu" của lần trước
+            st.session_state.pop('auto_results', None)
             st.info(tr('ℹ️ Nội dung **giống hệt** bản đang lưu nên không cần lưu lại. Hãy sửa tên hoặc thuyết minh rồi bấm Lưu.',
                        'ℹ️ Nothing changed, so nothing was saved.'))
         if save:
@@ -149,6 +152,15 @@ def _content_editor(exhibits, tr):
                         results = save_with_auto_translation(exhibit_id, name, description, save_vi=not unchanged,
                                                              languages=todo if unchanged else None)
                         st.session_state['auto_results'] = (exhibit_id, results)
+                        ok = [LANGUAGES[c] for c, r in results.items() if 'error' not in r]
+                        failed = [LANGUAGES[c] for c, r in results.items() if 'error' in r]
+                        parts = [tr('Tiếng Việt: đã lưu + tạo giọng đọc mới.', 'Vietnamese saved.') if not unchanged
+                                 else tr('Tiếng Việt: không đổi nên không lưu lại.', 'Vietnamese unchanged.')]
+                        if ok:
+                            parts.append(tr('Đã dịch + tạo giọng đọc: ', 'Translated: ') + ', '.join(ok) + '.')
+                        if failed:
+                            parts.append(tr('Chưa dịch được: ', 'Not translated: ') + ', '.join(failed) + tr(' (giữ bản cũ).', ' (kept old).'))
+                        st.session_state['save_message'] = ('warning' if failed else 'success', ' '.join(parts))
                     else:
                         review = None
                         if lang != 'vi':
@@ -157,10 +169,14 @@ def _content_editor(exhibits, tr):
                                 review['quality'] = translator.similarity(vi_item['description'] or '', review['back_translation'])
                         save_translation(exhibit_id, lang, name, description, review=review)
                         st.session_state.pop('auto_results', None)
+                        st.session_state['save_message'] = ('success', tr('Đã lưu và tạo giọng đọc mới.', 'Saved with a new voice narration.'))
             except AudioError:
                 logging.exception('Text-to-speech failed')
                 st.error(tr('Không tạo được giọng đọc (không kết nối được Google TTS). Nội dung CHƯA được lưu, hãy thử lại.',
                             'Could not generate the voice (Google TTS unreachable). Nothing was saved; please retry.'))
+            except ProfanityError as e:
+                st.error(tr('🚫 Nội dung có từ ngữ không phù hợp: **' + ', '.join(map(mask, e.words)) + '**. Vui lòng sửa lại — chưa lưu gì.',
+                            '🚫 Inappropriate words found: **' + ', '.join(map(mask, e.words)) + '**. Nothing was saved.'))
             except ValueError:
                 st.error(tr('Tên và nội dung thuyết minh không được để trống.', 'Name and narration are required.'))
             except Exception as save_error:
@@ -169,8 +185,9 @@ def _content_editor(exhibits, tr):
             else:
                 st.session_state['edit_saved'] = (exhibit_id, lang)
                 st.rerun()
-        if st.session_state.get('edit_saved') == (exhibit_id, lang):
-            st.success(tr('✅ Đã lưu và tạo giọng đọc mới.', '✅ Saved with a new voice narration.'))
+        if st.session_state.get('edit_saved') == (exhibit_id, lang) and st.session_state.get('save_message'):
+            kind, message = st.session_state['save_message']
+            getattr(st, kind)(('✅ ' if kind == 'success' else '⚠️ ') + message)
 
         # Kết quả tự dịch vừa chạy: hiện cả 2 bản để duyệt
         results = st.session_state.get('auto_results')
@@ -178,7 +195,9 @@ def _content_editor(exhibits, tr):
             st.markdown('#### 🌐 Kết quả tự dịch — hãy đọc phần "dịch ngược" để kiểm tra')
             for code, res in results[1].items():
                 if 'error' in res:
-                    st.warning(f'{LANGUAGES[code]}: chưa dịch được (lỗi kết nối dịch vụ dịch). Bản cũ được giữ nguyên, hãy thử Lưu lại.')
+                    st.warning(f'{LANGUAGES[code]}: chưa dịch được (lỗi kết nối dịch vụ dịch). Bản cũ được giữ nguyên, hãy thử lại sau ít phút.')
+                    with st.expander(f'Chi tiết lỗi — {LANGUAGES[code]}'):
+                        st.code(res['error'][:800])
                 else:
                     _show_review(f'{LANGUAGES[code]} — {res["name"]}', res['text'], res['back'], res['score'], res['missing_terms'])
             st.caption('Chỗ nào ⚠️/❌: đổi "Ngôn ngữ nội dung" sang ngôn ngữ đó, sửa câu rồi Lưu. '
@@ -218,28 +237,6 @@ def _explain_save_error(error, tr):
         st.error(tr('Không lưu được. Database đã đủ bảng, lỗi khác như sau:', 'Save failed with this error:'))
     with st.expander(tr('Chi tiết lỗi', 'Error details')):
         st.code(f'{type(error).__name__}: {str(error).strip()[:800]}')
-
-
-def _glossary_editor(tr):
-    with st.expander(tr('📖 Bảng thuật ngữ (tên riêng luôn dịch cố định)', '📖 Glossary (fixed translations)')):
-        st.caption(tr('Các từ trong bảng này luôn được dịch đúng như ghi ở đây, máy dịch không được tự đổi. '
-                      'Thêm tên riêng, tên loài, tên khu mới vào đây trước khi viết thuyết minh có chứa chúng.',
-                      'Terms here are always translated exactly as listed.'))
-        try:
-            rows = translator.glossary()
-        except Exception:
-            st.error(tr('Không tải được bảng thuật ngữ.', 'Could not load the glossary.'))
-            return
-        edited = st.data_editor(rows, num_rows='dynamic', use_container_width=True, key='glossary_editor',
-                                column_config={'vi': 'Tiếng Việt', 'en': 'English', 'zh': '中文'})
-        if st.button(tr('💾 Lưu bảng thuật ngữ', '💾 Save glossary')):
-            try:
-                n = translator.save_glossary(edited)
-            except Exception:
-                logging.exception('Glossary save failed')
-                st.error(tr('Không lưu được (đã chạy neon_setup.sql chưa?).', 'Save failed (run neon_setup.sql).'))
-            else:
-                st.success(tr(f'✅ Đã lưu {n} thuật ngữ.', f'✅ Saved {n} terms.'))
 
 
 def _visitor_stats(tr):

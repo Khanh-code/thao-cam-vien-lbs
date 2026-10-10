@@ -2,6 +2,7 @@ from pathlib import Path
 import logging
 import html
 from admin_ui import render_admin
+from auth import is_admin
 from content import LANGUAGES, translations, localize, generated_audio, auto_voice, with_vietnamese_name
 BASE = Path(__file__).resolve().parent
 import json
@@ -43,6 +44,10 @@ if not all_exhibits:
     st.info(tr('Database chưa có phân khu.', 'No zones in the database.', '数据库中没有展区。'))
     st.stop()
 render_admin(raw_exhibits, language)
+# Admin chỉ cần công cụ quản trị; giao diện khách (bản đồ, dẫn đường...) chỉ hiện khi bật xem thử
+admin_mode = is_admin()
+if admin_mode and not st.sidebar.toggle(tr('👁 Xem giao diện khách', '👁 Preview visitor view', '👁 预览游客界面'), key='admin_preview'):
+    st.stop()
 st.sidebar.caption(tr('Vị trí mô phỏng bằng bấm bản đồ; chưa kết nối GPS thiết bị.', 'Position is simulated by map clicks; device GPS is not connected.', '位置通过点击地图模拟；尚未连接设备 GPS。'))
 if 'user_lat' not in st.session_state:
     st.session_state.user_lat = 10.78775
@@ -62,7 +67,8 @@ def tracking_call(operation, *args, default=None, **kwargs):
         logging.exception('Visitor tracking failed')
         return default
 
-visitor_id = tracking_call(tracking.get_or_create_visitor, st.query_params.get('v') or st.session_state.get('visitor_id'))
+# Admin xem thử không tạo tài khoản khách / không lưu vết -> không làm sai thống kê
+visitor_id = None if admin_mode else tracking_call(tracking.get_or_create_visitor, st.query_params.get('v') or st.session_state.get('visitor_id'))
 st.session_state.visitor_id = visitor_id
 if visitor_id and st.query_params.get('v') != visitor_id:
     # Gắn mã khách vào URL để tải lại trang vẫn giữ tài khoản; mã cũ hết hạn sẽ được thay mã mới

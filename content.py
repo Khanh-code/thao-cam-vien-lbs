@@ -11,6 +11,8 @@ import psycopg2
 from psycopg2.errors import UndefinedTable, UndefinedColumn
 import streamlit as st
 from auth import require_admin
+import moderation
+from moderation import ProfanityError
 from db_services import database_cursor, get_all_exhibits, query_nearby
 
 LANGUAGES = {'vi': 'Tiếng Việt', 'en': 'English', 'zh': '中文'}
@@ -143,6 +145,7 @@ def save_translation(exhibit_id, language, name, description, review=None):
     require_admin()
     if language not in LANGUAGES or not name.strip() or not description.strip():
         raise ValueError('Language, name and description are required')
+    moderation.check(name, description)          # chặn từ ngữ tục tĩu / xúc phạm (kiểm tra phía server)
     audio = synthesize(description.strip(), language)
     review = review or {}
     with database_cursor() as cur:
@@ -189,9 +192,12 @@ def is_unchanged(current, name, description):
 
 
 def missing_translations(exhibit_id):
-    """Các ngôn ngữ (en, zh) chưa có bản dịch lưu trong database cho phân khu này."""
+    """Các ngôn ngữ (en, zh) CHƯA có bản dịch nào cho phân khu này
+    (không có trong database và cũng không có bản dịch dựng sẵn english/chinese_content.json)."""
     import translator
-    return [lang for lang in translator.TARGETS if exhibit_id not in translations(lang)]
+    raw = next((x for x in get_all_exhibits() if x['id'] == exhibit_id), None)
+    builtin_ok = lambda lang: raw is not None and raw['name'] in BUILTIN.get(lang, {})
+    return [lang for lang in translator.TARGETS if exhibit_id not in translations(lang) and not builtin_ok(lang)]
 
 
 def save_with_auto_translation(exhibit_id, name_vi, description_vi, save_vi=True, languages=None):
@@ -210,6 +216,8 @@ def save_with_auto_translation(exhibit_id, name_vi, description_vi, save_vi=True
                              review={'machine_translated': True, 'back_translation': checked['back'],
                                      'quality': checked['score']})
             results[lang] = dict(checked, name=name)
+        except ProfanityError as e:
+            results[lang] = {'error': 'Bản dịch máy có từ không phù hợp (' + ', '.join(map(moderation.mask, e.words)) + ') nên không lưu.'}
         except (translator.TranslationError, AudioError) as e:
             results[lang] = {'error': str(e)}
     return results
