@@ -385,8 +385,19 @@ def _new_zone(exhibits):
             except AudioError:
                 kind = 'warning'
                 msgs.append('Đã thêm khu nhưng chưa tạo được giọng đọc. Vào thẻ "Sửa / xoá phân khu" bấm Lưu thay đổi để tạo lại.')
+            except Exception as text_error:      # khu đã được tạo: không báo "không lưu được" gây hiểu lầm
+                logging.exception('Saving texts for new zone failed')
+                kind = 'warning'
+                msgs.append(f'Đã thêm khu nhưng chưa lưu được bản dịch / giọng đọc ({type(text_error).__name__}: '
+                            f'{str(text_error).strip()[:300]}). Vào thẻ "Sửa / xoá phân khu" bấm Lưu thay đổi để thử lại.')
             if photos:
-                zones.add_images(new_id, [f.getvalue() for f in photos])
+                try:
+                    zones.add_images(new_id, [f.getvalue() for f in photos])
+                except Exception as image_error:
+                    logging.exception('Saving images for new zone failed')
+                    kind = 'warning'
+                    msgs.append(f'Chưa lưu được ảnh ({type(image_error).__name__}: {str(image_error).strip()[:300]}). '
+                                'Thêm lại ảnh trong thẻ "Sửa / xoá phân khu".')
             st.session_state['new_round'] = st.session_state.get('new_round', 0) + 1
             st.session_state.pop('new_pick', None)
             st.session_state['edit_id'] = new_id
@@ -410,8 +421,7 @@ def _explain_save_error(error, tr):
                     'Save failed: the database is missing:' + items + '\n\nRun the latest neon_setup.sql in the Neon SQL Editor.'))
     else:
         st.error(tr('Không lưu được. Database đã đủ bảng, lỗi khác như sau:', 'Save failed with this error:'))
-    with st.expander(tr('Chi tiết lỗi', 'Error details')):
-        st.code(f'{type(error).__name__}: {str(error).strip()[:800]}')
+    st.code(f'{type(error).__name__}: {str(error).strip()[:800]}', language=None)
 
 
 def _visitor_stats(tr):
