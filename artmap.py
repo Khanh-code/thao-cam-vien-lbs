@@ -23,8 +23,8 @@ try:
                         'https://raw.githubusercontent.com/Khanh-code/thao-cam-vien-lbs/main/static/so_do_tcv.jpg')
 except Exception:
     IMAGE_URL = 'https://raw.githubusercontent.com/Khanh-code/thao-cam-vien-lbs/main/static/so_do_tcv.jpg'
-CROP_X = 495                                # ảnh đã cắt bỏ cột chú thích bên trái của bản in
-WIDTH, HEIGHT = 1553, 1388
+CROP_X = 0                                  # so_do_tcv.json đã ở đúng hệ pixel của ảnh (đã bỏ cột chú thích)
+WIDTH, HEIGHT = 2073, 1785                  # ảnh sơ đồ bản rõ (phóng 1,5 lần từ bản in 1800 px)
 
 _R = 6371000.0
 _LAT0, _LNG0 = 10.7880, 106.7060

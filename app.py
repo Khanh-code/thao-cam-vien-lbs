@@ -278,7 +278,7 @@ with col_map:
     # Lớp tĩnh (vẽ một lần): nền, lối đi, các khu. Tâm cố định để bản đồ không phải tải lại khi bạn di chuyển.
     if art:
         fmap = folium.Map(location=artmap.leaflet(artmap.WIDTH / 2, artmap.HEIGHT / 2), crs='Simple', tiles=None,
-                          zoom_start=-1, minZoom=-2, maxZoom=2, zoom_snap=0.25, max_bounds=True,   # min/maxZoom: folium chỉ áp cho lớp nền tile
+                          zoom_start=-1.25, minZoom=-2.5, maxZoom=1.5, zoom_snap=0.25, max_bounds=True,   # min/maxZoom: folium chỉ áp cho lớp nền tile
                           min_lat=-artmap.HEIGHT, max_lat=0, min_lon=0, max_lon=artmap.WIDTH)
         folium.raster_layers.ImageOverlay(image=artmap.IMAGE_URL, bounds=artmap.bounds()).add_to(fmap)
         layer_control = None
@@ -346,7 +346,7 @@ with col_map:
     folium.Circle(location=me, radius=ring, color=ui.LOTUS, weight=2, dash_array='6, 6',
                   fill=True, fill_color=ui.LOTUS, fill_opacity=0.07).add_to(live)
     map_out = st_folium(fmap, key='visitor_map_art' if art else 'visitor_map', width='100%', height=600,
-                        returned_objects=['last_clicked'], center=tuple(me), zoom=-1 if art else None,
+                        returned_objects=['last_clicked'], center=tuple(me), zoom=-1.25 if art else None,
                         feature_group_to_add=live, layer_control=layer_control)
     st.markdown(ui.legend_note(
         tr('Mỗi cọc đỏ là một khu tham quan, đánh số đúng như sơ đồ của Thảo Cầm Viên. Đi tới gần là app tự kể.',
