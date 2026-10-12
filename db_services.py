@@ -61,6 +61,16 @@ def zones_v2():
         return cur.fetchone()['n'] == 2
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def map_numbers():
+    """True nếu database đã chạy migration 008 (cột map_no + bảng exhibit_pins: cọc số theo bản đồ chính thức)."""
+    with database_cursor() as cur:
+        cur.execute("""SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                                      WHERE table_name = 'exhibits' AND column_name = 'map_no')
+                          AND to_regclass('public.exhibit_pins') IS NOT NULL AS ok""")
+        return bool(cur.fetchone()['ok'])
+
+
 def active_sql(alias=''):
     """Điều kiện chỉ lấy khu còn hiển thị (khu đã xoá bị ẩn). Database cũ -> lấy tất cả."""
     return f'{alias}is_active' if zones_v2() else 'TRUE'
@@ -71,13 +81,21 @@ def get_all_exhibits():
     """Truy vấn danh sách tất cả các điểm trưng bày kèm tọa độ và polygon ranh giới."""
     with database_cursor() as cur:
         color = 'color' if zones_v2() else 'NULL::text AS color'
+        if map_numbers():
+            # Số hiệu theo bản đồ chính thức + các cọc phụ (khu có nhiều điểm: nhà vệ sinh, nhà ăn...)
+            numbering = """map_no,
+                   (SELECT json_agg(json_build_array(ST_Y(p.geom), ST_X(p.geom)) ORDER BY p.id)
+                    FROM exhibit_pins p WHERE p.exhibit_id = exhibits.id) AS extra_pins"""
+            order = 'map_no NULLS LAST, id'
+        else:
+            numbering, order = 'NULL::integer AS map_no, NULL::json AS extra_pins', 'id'
         cur.execute(f"""
-            SELECT id, name, description, audio_file, {color},
+            SELECT id, name, description, audio_file, {color}, {numbering},
                    ST_X(geom) AS lng, ST_Y(geom) AS lat,
                    ST_AsGeoJSON(geom_poly) AS poly_geojson
             FROM exhibits
             WHERE {active_sql()}
-            ORDER BY id ASC;
+            ORDER BY {order};
         """)
         rows = cur.fetchall()
         return rows

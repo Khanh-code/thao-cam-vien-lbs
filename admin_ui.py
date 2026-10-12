@@ -156,7 +156,8 @@ def _pick_map(key, exhibits, pick=None, radius=None, editing=None):
             folium.GeoJson(json.loads(x['poly_geojson']), tooltip=x['name'], control=False,
                            style_function=lambda _: {'color': '#FFFFFF', 'weight': 1.5, 'dashArray': '5 5',
                                                      'fillColor': '#FFFFFF', 'fillOpacity': 0.18}).add_to(m)
-        folium.Marker([x['lat'], x['lng']], tooltip=x['name'], icon=folium.Icon(color='gray', icon='paw', prefix='fa')).add_to(m)
+        for lat_p, lng_p in [(x['lat'], x['lng'])] + [tuple(p) for p in (x.get('extra_pins') or [])]:
+            folium.Marker([lat_p, lng_p], tooltip=ui.zone_label(x), icon=ui.pin_icon(x.get('map_no'))).add_to(m)
     if pick and radius:
         color = (editing or {}).get('color') or '#C8406E'
         folium.Circle(pick, radius=radius, color=color, weight=3, dash_array='6 6', fill=True,
@@ -226,7 +227,8 @@ def _edit_zone(exhibits):
     if not exhibits:
         st.info('Chưa có phân khu nào. Hãy thêm ở thẻ "Thêm phân khu mới".')
         return
-    options = {x['id']: x['name'] for x in exhibits}
+    import ui
+    options = {x['id']: ui.zone_label(x) for x in exhibits}
     exhibit_id = st.selectbox('Phân khu', list(options), format_func=options.get, key='edit_id')
     original = next(x for x in exhibits if x['id'] == exhibit_id)
     item = localize(original, 'vi', translations('vi'))
@@ -286,9 +288,9 @@ def _edit_zone(exhibits):
         st.markdown('#### Kết quả tự dịch')
         for code, res in results[1].items():
             if 'error' in res:
-                st.warning(f'{LANGUAGES[code]}: chưa dịch được (lỗi kết nối dịch vụ dịch). Bản cũ được giữ nguyên.')
-                with st.expander(f'Chi tiết lỗi, {LANGUAGES[code]}'):
-                    st.code(res['error'][:800])
+                st.warning(f'{LANGUAGES[code]}: chưa dịch được (lỗi kết nối dịch vụ dịch). Bản cũ được giữ nguyên. '
+                           'Chờ vài phút rồi bấm Lưu thay đổi lại.')
+                st.code(res['error'][:800], language=None)
             else:
                 _show_review(f'{LANGUAGES[code]}: {res["name"]}', res['text'], res['back'], res['score'], res['missing_terms'])
         st.caption('Bản nào bị đánh dấu vàng hoặc đỏ: viết lại câu tiếng Việt ngắn gọn, rõ chủ ngữ, mỗi câu một ý rồi bấm Lưu lại.')

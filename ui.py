@@ -228,6 +228,29 @@ def route_line(text_before, name, text_after):
     return f'<div class="tcv-route"><span>{esc(text_before)}<b>{esc(name)}</b>{esc(text_after)}</span></div>'
 
 
+PIN_RED = '#E3262E'   # màu cọc trên bản đồ chính thức của Thảo Cầm Viên
+
+
+def pin_icon(number, color=PIN_RED, size=26):
+    """Cọc tròn đỏ có số, giống bản đồ in "Khám phá Thảo Cầm Viên". Khu chưa có số -> chấm tròn nhỏ."""
+    import folium
+    if number is None:
+        size = 14
+        inner = ''
+    else:
+        inner = str(int(number))
+    font = 12 if len(inner) < 2 else 11
+    html_pin = (f'<div style="width:{size}px;height:{size}px;border-radius:50%;background:{color};'
+                f'border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.45);color:#fff;'
+                f'font:700 {font}px/{size - 4}px Arial,Helvetica,sans-serif;text-align:center;">{inner}</div>')
+    return folium.DivIcon(html=html_pin, icon_size=(size, size), icon_anchor=(size // 2, size // 2))
+
+
+def zone_label(item):
+    """Tên hiển thị trong danh sách: "12 · Voọc bạc, Nhím"."""
+    return f"{item['map_no']} · {item['name']}" if item.get('map_no') is not None else item['name']
+
+
 def legend_note(text):
     return f'<p class="tcv-legend-note">{esc(text)}</p>'
 

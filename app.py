@@ -201,11 +201,11 @@ with st.sidebar:
             st.caption(tr('Không có khu nào khớp. Thử một từ khác.', 'No zone matches. Try another word.', '没有匹配的展区，请换个词试试。'))
     st.markdown('<div class="tcv-side-title">' + ui.esc(tr(f'Các khu ({len(shown)})', f'Zones ({len(shown)})', f'展区（{len(shown)}）')) + '</div>', unsafe_allow_html=True)
     for item in shown:
-        if st.button(item['name'], key=f'zone_{item["id"]}', use_container_width=True):
+        if st.button(ui.zone_label(item), key=f'zone_{item["id"]}', use_container_width=True):
             go_to(item)
 
     st.markdown('<div class="tcv-side-title">' + ui.esc(tr('Đi bộ tới', 'Walk to', '步行前往')) + '</div>', unsafe_allow_html=True)
-    route_options = {item['id']: item['name'] for item in all_exhibits}
+    route_options = {item['id']: ui.zone_label(item) for item in all_exhibits}
     selected_target = st.selectbox(tr('Điểm đến', 'Destination', '目的地'), options=list(route_options.keys()),
                                    format_func=lambda x: route_options[x], label_visibility='collapsed')
     col_btn1, col_btn2 = st.columns(2)
@@ -251,9 +251,11 @@ with col_map:
                            # Vùng nghe thuyết minh (không phải hàng rào chuồng): nét đứt, màu nhạt
                            style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 1.5, 'dashArray': '6 6', 'fillOpacity': 0.14},
                            tooltip=f'<b>{html.escape(item["name"])}</b>').add_to(fmap)
-        icon_color, icon_name = ui.ZONE_ICON.get(color, ('darkgreen', 'leaf'))
-        folium.Marker(location=[item['lat'], item['lng']], tooltip=html.escape(item['name']), popup=html.escape(item['name']),
-                      icon=folium.Icon(color=icon_color, icon=icon_name, prefix='fa')).add_to(fmap)
+        # Cọc đỏ đánh số như bản đồ in của Thảo Cầm Viên (khu có nhiều điểm: thêm cọc phụ cùng số)
+        label = html.escape(ui.zone_label(item))
+        for lat_p, lng_p in [(item['lat'], item['lng'])] + [tuple(p) for p in (item.get('extra_pins') or [])]:
+            folium.Marker(location=[lat_p, lng_p], tooltip=label, popup=label,
+                          icon=ui.pin_icon(item.get('map_no'))).add_to(fmap)
 
     # Lớp động (cập nhật mỗi lần bạn di chuyển, không tải lại bản đồ): vị trí, vòng 50 m, đường đi
     live = folium.FeatureGroup(name=tr('Vị trí và đường đi', 'Position and route', '位置与路线'), control=False)
@@ -299,7 +301,12 @@ with col_map:
     st.markdown(ui.legend_note(tr('Vòng nét đứt quanh mỗi khu là vùng nghe thuyết minh: bước vào là app tự kể.',
                                   'The dashed ring around each zone is its narration area: step inside and the story plays.',
                                   '每个展区周围的虚线圈是讲解区域：走进去就会自动播放讲解。')), unsafe_allow_html=True)
-    st.markdown(ui.legend([(item['name'], zone_color(item)) for item in all_exhibits],
+    numbered = any(item.get('map_no') is not None for item in all_exhibits)
+    legend_zones = [] if numbered else [(item['name'], zone_color(item)) for item in all_exhibits]
+    if numbered:   # 52 khu: chú thích bằng cọc số (xem danh sách bên trái) thay vì liệt kê từng màu
+        legend_zones = [(tr('Cọc số: phân khu theo bản đồ Thảo Cầm Viên', 'Numbered pins: zones as on the official zoo map',
+                            '数字标记：与动植物园官方地图一致的展区'), ui.PIN_RED)]
+    st.markdown(ui.legend(legend_zones,
                           tr('Bạn đang ở đây, vòng 50 m', 'You are here, 50 m ring', '您的位置，50米范围'),
                           tr('Đường đi bộ gợi ý', 'Suggested walking route', '建议步行路线')), unsafe_allow_html=True)
     if map_out and map_out.get('last_clicked'):

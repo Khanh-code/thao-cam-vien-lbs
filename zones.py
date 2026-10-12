@@ -37,6 +37,11 @@ def _clear_caches():
     zone_images.clear()
     zones_v2.clear()
     try:
+        from db_services import map_numbers
+        map_numbers.clear()
+    except Exception:
+        pass
+    try:
         from content import translations
         translations.clear()
     except Exception:
@@ -190,10 +195,14 @@ def create_zone(name, description, color, drawing, center=None):
         poly_sql = _poly_expr(cur)
         center_sql = _center_sql(center)
         cur.execute('LOCK TABLE exhibits IN SHARE ROW EXCLUSIVE MODE')   # cấp id an toàn khi nhiều admin cùng thêm
+        from db_services import map_numbers
+        numbered = map_numbers()
+        no_col = ', map_no' if numbered else ''
+        no_val = ', (SELECT COALESCE(MAX(map_no), 0) + 1 FROM exhibits WHERE is_active)' if numbered else ''
         cur.execute(f"""
-            INSERT INTO exhibits (id, name, description, color, is_active, geom_poly, geom)
+            INSERT INTO exhibits (id, name, description, color, is_active, geom_poly, geom{no_col})
             SELECT COALESCE(MAX(id), 0) + 1, %(name)s, %(desc)s, %(color)s, true,
-                   {poly_sql}, {center_sql}
+                   {poly_sql}, {center_sql}{no_val}
             FROM exhibits
             RETURNING id""", {'name': name, 'desc': description, 'color': color, 'poly': poly,
                                'clat': center[0] if center else None, 'clng': center[1] if center else None})

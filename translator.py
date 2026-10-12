@@ -40,6 +40,21 @@ def _chunks(text, limit=450):
     return parts + ([current] if current else [])
 
 
+def _google_api(text, source, target):
+    """Google Dịch qua endpoint JSON (translate.googleapis.com). Ổn định hơn trên máy chủ cloud
+    so với cách đọc trang web của deep-translator."""
+    import requests
+    out = []
+    for part in _chunks(text, limit=1500):
+        r = requests.post('https://translate.googleapis.com/translate_a/single',
+                          params={'client': 'gtx', 'sl': ENGINE_CODE[source], 'tl': ENGINE_CODE[target], 'dt': 't'},
+                          data={'q': part}, timeout=15,
+                          headers={'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'})
+        r.raise_for_status()
+        out.append(''.join(seg[0] for seg in r.json()[0] if seg and seg[0]))
+    return ('' if target == 'zh' else ' ').join(out)
+
+
 def _google(text, source, target):
     from deep_translator import GoogleTranslator
     return GoogleTranslator(source=ENGINE_CODE[source], target=ENGINE_CODE[target]).translate(text)
@@ -56,7 +71,7 @@ def _engine(text, source, target):
     """Gọi máy dịch: Google Dịch trước, lỗi thì tự chuyển sang MyMemory (dự phòng).
     Tách riêng để dễ thay dịch vụ khác / giả lập khi kiểm thử."""
     errors = []
-    for name, service in (('Google', _google), ('MyMemory', _mymemory)):
+    for name, service in (('Google API', _google_api), ('Google', _google), ('MyMemory', _mymemory)):
         try:
             out = service(text, source, target)
             if out and out.strip() and 'MYMEMORY WARNING' not in out:
