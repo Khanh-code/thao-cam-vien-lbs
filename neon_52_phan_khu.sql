@@ -20,8 +20,9 @@ CREATE TABLE IF NOT EXISTS exhibit_pins (
 );
 CREATE INDEX IF NOT EXISTS idx_exhibit_pins_exhibit ON exhibit_pins(exhibit_id);
 
--- Bỏ các điểm cũ: mọi khu chưa có số trên sơ đồ, và mọi khu cũ đang chiếm id 1..52
-DELETE FROM exhibits WHERE map_no IS NULL OR (id BETWEEN 1 AND 52 AND map_no IS DISTINCT FROM id);
+-- Bỏ các điểm cũ: khu chưa có số trên sơ đồ, bản nạp lần đầu (id 1001..1052), khu cũ đang chiếm id 1..52
+DELETE FROM exhibits WHERE map_no IS NULL OR id BETWEEN 1001 AND 1052   -- 1001..1052: bản nạp lần đầu (trùng cọc)
+   OR (id BETWEEN 1 AND 52 AND map_no IS DISTINCT FROM id);
 
 INSERT INTO exhibits (id, map_no, name, description, color, is_active, geom, geom_poly)
 VALUES (1, 1, 'Hươu cao cổ', 'Hươu cao cổ là loài động vật cao nhất trên cạn, con đực có thể cao gần 6 mét. Chiếc lưỡi dài khoảng nửa mét giúp chúng tuốt lá trên những cành cây cao. Mỗi con có bộ hoa văn trên lông riêng, không con nào giống con nào.', '#1F5C43', true, ST_SetSRID(ST_MakePoint(106.7080579, 10.7878513), 4326),

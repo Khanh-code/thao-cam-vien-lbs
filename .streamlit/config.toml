@@ -10,6 +10,3 @@ font = "sans serif"
 [client]
 toolbarMode = "minimal"
 
-[server]
-# Phục vụ ảnh sơ đồ Thảo Cầm Viên (thư mục static/) tại /app/static/...
-enableStaticServing = true

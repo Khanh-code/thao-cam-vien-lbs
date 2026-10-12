@@ -256,9 +256,7 @@ with col_map:
         fmap = folium.Map(location=artmap.leaflet(artmap.WIDTH / 2, artmap.HEIGHT / 2), crs='Simple', tiles=None,
                           zoom_start=-1, minZoom=-2, maxZoom=2, zoom_snap=0.25, max_bounds=True,   # min/maxZoom: folium chỉ áp cho lớp nền tile
                           min_lat=-artmap.HEIGHT, max_lat=0, min_lon=0, max_lon=artmap.WIDTH)
-        overlay = folium.raster_layers.ImageOverlay(image='https://placeholder.invalid/so_do.jpg', bounds=artmap.bounds())
-        overlay.url = artmap.IMAGE_URL      # ảnh phục vụ tĩnh, không nhúng base64 mỗi lần tải lại
-        overlay.add_to(fmap)
+        folium.raster_layers.ImageOverlay(image=artmap.IMAGE_URL, bounds=artmap.bounds()).add_to(fmap)
         layer_control = None
     else:
         fmap = folium.Map(location=[zoo_lat, zoo_lng], zoom_start=18, tiles=None, control_scale=True)

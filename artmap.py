@@ -14,7 +14,15 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent
 CONTROL_FILE = ROOT / 'so_do_tcv.json'
 IMAGE_FILE = ROOT / 'static' / 'so_do_tcv.jpg'
-IMAGE_URL = '/app/static/so_do_tcv.jpg'    # Streamlit phục vụ thư mục static/ (server.enableStaticServing)
+# Ảnh sơ đồ lấy thẳng từ repo GitHub (trình duyệt tự lưu đệm, không phải gửi ảnh mỗi lần app chạy lại).
+# Streamlit Cloud chạy app dưới đường dẫn con nên địa chỉ /app/static/... không dùng được.
+# Đổi nguồn ảnh: [app] map_image_url trong secrets.
+try:
+    from config import setting
+    IMAGE_URL = setting('app', 'map_image_url',
+                        'https://raw.githubusercontent.com/Khanh-code/thao-cam-vien-lbs/main/static/so_do_tcv.jpg')
+except Exception:
+    IMAGE_URL = 'https://raw.githubusercontent.com/Khanh-code/thao-cam-vien-lbs/main/static/so_do_tcv.jpg'
 CROP_X = 495                                # ảnh đã cắt bỏ cột chú thích bên trái của bản in
 WIDTH, HEIGHT = 1553, 1388
 
