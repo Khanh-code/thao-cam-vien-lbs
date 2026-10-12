@@ -14,6 +14,7 @@ from db_services import get_all_exhibits, get_all_walkways, query_nearby, get_sh
 import tracking
 import ui
 import location
+import artmap
 import streamlit.components.v1 as components
 from zones import zone_images
 
@@ -236,26 +237,49 @@ with col_map:
     route_box = st.container()
     if arrived_name:
         route_box.success(tr(f'Bạn đã tới {arrived_name}.', f'You have arrived at {arrived_name}.', f'您已到达 {arrived_name}。'))
+    # Kiểu bản đồ: sơ đồ minh hoạ chính thức (mặc định, giống bản in) hoặc bản đồ thật / ảnh vệ tinh.
+    # Dù chọn kiểu nào, định vị, vùng thuyết minh và tìm đường đều tính bằng toạ độ thật trong PostGIS.
+    art_ok = artmap.available() and any(x.get('map_no') is not None for x in all_exhibits)
+    art = art_ok and st.radio(tr('Kiểu bản đồ', 'Map style', '地图样式'), ['art', 'real'], horizontal=True, key='map_mode',
+                              label_visibility='collapsed',
+                              format_func=lambda m: tr('Sơ đồ Thảo Cầm Viên', 'Zoo map', '园区导览图') if m == 'art'
+                              else tr('Bản đồ thật', 'Real map', '真实地图')) == 'art'
+
+    def project_many(points):
+        """Toạ độ thật -> toạ độ vẽ trên bản đồ đang hiển thị."""
+        if not art:
+            return [list(p) for p in points]
+        return [artmap.leaflet(x, y) for x, y in artmap.to_art_many(points)]
+
     # Lớp tĩnh (vẽ một lần): nền, lối đi, các khu. Tâm cố định để bản đồ không phải tải lại khi bạn di chuyển.
-    fmap = folium.Map(location=[zoo_lat, zoo_lng], zoom_start=18, tiles=None, control_scale=True)
-    layer_control = ui.add_base_layers(fmap, tr('Bản đồ', 'Map', '地图'), tr('Ảnh vệ tinh', 'Satellite', '卫星图'), control=False)
-    for w in all_walkways:
+    if art:
+        fmap = folium.Map(location=artmap.leaflet(artmap.WIDTH / 2, artmap.HEIGHT / 2), crs='Simple', tiles=None,
+                          zoom_start=-1, minZoom=-2, maxZoom=2, zoom_snap=0.25, max_bounds=True,   # min/maxZoom: folium chỉ áp cho lớp nền tile
+                          min_lat=-artmap.HEIGHT, max_lat=0, min_lon=0, max_lon=artmap.WIDTH)
+        overlay = folium.raster_layers.ImageOverlay(image='https://placeholder.invalid/so_do.jpg', bounds=artmap.bounds())
+        overlay.url = artmap.IMAGE_URL      # ảnh phục vụ tĩnh, không nhúng base64 mỗi lần tải lại
+        overlay.add_to(fmap)
+        layer_control = None
+    else:
+        fmap = folium.Map(location=[zoo_lat, zoo_lng], zoom_start=18, tiles=None, control_scale=True)
+        layer_control = ui.add_base_layers(fmap, tr('Bản đồ', 'Map', '地图'), tr('Ảnh vệ tinh', 'Satellite', '卫星图'), control=False)
+    for w in ([] if art else all_walkways):   # sơ đồ đã vẽ sẵn lối đi
         if w.get('geom_json'):
             w_coords = [(pt[1], pt[0]) for pt in json.loads(w['geom_json'])['coordinates']]
             folium.PolyLine(w_coords, color='#9AAFA1', weight=2.5, opacity=0.75,
                             tooltip=tr(f'Lối đi bộ: {w["name"]}', f'Walkway: {w["name"]}', f'步行道：{w["name"]}')).add_to(fmap)
     for item in all_exhibits:
         color = zone_color(item)
-        if item.get('poly_geojson'):
+        if item.get('poly_geojson') and not art:
             folium.GeoJson(json.loads(item['poly_geojson']), name=item['name'], control=False,
                            # Vùng nghe thuyết minh (không phải hàng rào chuồng): nét đứt, màu nhạt
                            style_function=lambda x, c=color: {'fillColor': c, 'color': c, 'weight': 1.5, 'dashArray': '6 6', 'fillOpacity': 0.14},
                            tooltip=f'<b>{html.escape(item["name"])}</b>').add_to(fmap)
         # Cọc đỏ đánh số như bản đồ in của Thảo Cầm Viên (khu có nhiều điểm: thêm cọc phụ cùng số)
         label = html.escape(ui.zone_label(item))
-        for lat_p, lng_p in [(item['lat'], item['lng'])] + [tuple(p) for p in (item.get('extra_pins') or [])]:
-            folium.Marker(location=[lat_p, lng_p], tooltip=label, popup=label,
-                          icon=ui.pin_icon(item.get('map_no'))).add_to(fmap)
+        spots = [(item['lat'], item['lng'])] + [tuple(p) for p in (item.get('extra_pins') or [])]
+        for spot in project_many(spots):
+            folium.Marker(location=spot, tooltip=label, popup=label, icon=ui.pin_icon(item.get('map_no'))).add_to(fmap)
 
     # Lớp động (cập nhật mỗi lần bạn di chuyển, không tải lại bản đồ): vị trí, vòng 50 m, đường đi
     live = folium.FeatureGroup(name=tr('Vị trí và đường đi', 'Position and route', '位置与路线'), control=False)
@@ -274,7 +298,7 @@ with col_map:
                 target_pt = (target_info['lat'], target_info['lng'])
                 if full_walk_path[-1] != target_pt:
                     full_walk_path.append(target_pt)
-                folium.PolyLine(full_walk_path, color=ui.LOTUS, weight=6, opacity=0.95, dash_array='1, 11', line_cap='round',
+                folium.PolyLine(project_many(full_walk_path), color=ui.LOTUS, weight=6, opacity=0.95, dash_array='1, 11', line_cap='round',
                                 tooltip=tr(f'Đường đi bộ tới {target_info["name"]}', f'Walking route to {target_info["name"]}', f'前往 {target_info["name"]} 的步行路线')).add_to(live)
                 minutes = max(1, round(total_distance / 70))   # ~70 m/phút đi bộ thong thả
                 if gps_live:   # đang đi thật: hiện quãng đường còn lại, tự tính lại khi bạn di chuyển
@@ -291,16 +315,22 @@ with col_map:
                 route_box.warning(tr('Không tìm thấy lối đi bộ nối tới khu này. Hãy chọn một điểm xuất phát khác trên bản đồ.',
                                      'No connected walking path reaches this zone. Try starting from another point on the map.',
                                      '没有可通往该展区的步道，请在地图上换一个起点。'))
-    folium.Marker(location=[st.session_state.user_lat, st.session_state.user_lng], tooltip=tr('Bạn đang ở đây', 'You are here', '您在这里'),
+    me = project_many([(st.session_state.user_lat, st.session_state.user_lng)])[0]
+    ring = artmap.metres_to_px(st.session_state.user_lat, st.session_state.user_lng, 50) if art else 50   # vòng 50 m thật
+    folium.Marker(location=me, tooltip=tr('Bạn đang ở đây', 'You are here', '您在这里'),
                   icon=folium.Icon(color='pink', icon='street-view', prefix='fa')).add_to(live)
-    folium.Circle(location=[st.session_state.user_lat, st.session_state.user_lng], radius=50, color=ui.LOTUS, weight=2, dash_array='6, 6',
+    folium.Circle(location=me, radius=ring, color=ui.LOTUS, weight=2, dash_array='6, 6',
                   fill=True, fill_color=ui.LOTUS, fill_opacity=0.07).add_to(live)
-    map_out = st_folium(fmap, key='visitor_map', width='100%', height=600, returned_objects=['last_clicked'],
-                        center=(st.session_state.user_lat, st.session_state.user_lng),
+    map_out = st_folium(fmap, key='visitor_map_art' if art else 'visitor_map', width='100%', height=600,
+                        returned_objects=['last_clicked'], center=tuple(me), zoom=-1 if art else None,
                         feature_group_to_add=live, layer_control=layer_control)
-    st.markdown(ui.legend_note(tr('Vòng nét đứt quanh mỗi khu là vùng nghe thuyết minh: bước vào là app tự kể.',
-                                  'The dashed ring around each zone is its narration area: step inside and the story plays.',
-                                  '每个展区周围的虚线圈是讲解区域：走进去就会自动播放讲解。')), unsafe_allow_html=True)
+    st.markdown(ui.legend_note(
+        tr('Mỗi cọc đỏ là một khu tham quan, đánh số đúng như sơ đồ của Thảo Cầm Viên. Đi tới gần là app tự kể.',
+           'Each red pin is a zone, numbered as on the official zoo map. Walk close and the story plays.',
+           '每个红色标记是一个展区，编号与动植物园官方导览图一致。走近即可自动播放讲解。') if art else
+        tr('Vòng nét đứt quanh mỗi khu là vùng nghe thuyết minh: bước vào là app tự kể.',
+           'The dashed ring around each zone is its narration area: step inside and the story plays.',
+           '每个展区周围的虚线圈是讲解区域：走进去就会自动播放讲解。')), unsafe_allow_html=True)
     numbered = any(item.get('map_no') is not None for item in all_exhibits)
     legend_zones = [] if numbered else [(item['name'], zone_color(item)) for item in all_exhibits]
     if numbered:   # 52 khu: chú thích bằng cọc số (xem danh sách bên trái) thay vì liệt kê từng màu
@@ -311,8 +341,10 @@ with col_map:
                           tr('Đường đi bộ gợi ý', 'Suggested walking route', '建议步行路线')), unsafe_allow_html=True)
     if map_out and map_out.get('last_clicked'):
         c_lat, c_lng = map_out['last_clicked']['lat'], map_out['last_clicked']['lng']
-        if (round(c_lat, 5), round(c_lng, 5)) != st.session_state.get('last_click'):
-            st.session_state.last_click = (round(c_lat, 5), round(c_lng, 5))
+        if (art, round(c_lat, 5), round(c_lng, 5)) != st.session_state.get('last_click'):
+            st.session_state.last_click = (art, round(c_lat, 5), round(c_lng, 5))
+            if art:   # chạm trên sơ đồ -> đổi ra toạ độ thật
+                c_lat, c_lng = artmap.to_latlng(*artmap.from_leaflet(c_lat, c_lng))
             st.session_state.user_lat, st.session_state.user_lng = c_lat, c_lng
             st.session_state.img_index = 0
             st.rerun()

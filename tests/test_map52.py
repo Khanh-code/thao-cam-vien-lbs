@@ -41,7 +41,11 @@ def test_load_52_zones_on_database_copy():
     try:
         run('-d', 'tcv_map52_copy', '-f', str(SQL))
         out = run('-d', 'tcv_map52_copy', '-f', str(SQL)).stdout       # chạy lại lần 2 vẫn an toàn
-        assert '52 |         156 |         14' in out
+        row = [c.strip() for c in out.strip().splitlines()[-2].split('|')]
+        assert row[:4] == ['52', '156', '14', '0']        # 52 khu, 156 bản dịch, 14 cọc phụ, 0 khu cũ
+        assert int(row[4]) > 500                          # mạng lối đi mới
+        ids = run('-d', 'tcv_map52_copy', '-At', '-c', 'SELECT COUNT(*) FROM exhibits WHERE id <> map_no').stdout.strip()
+        assert ids == '0'                                  # id phân khu = đúng số trên sơ đồ
         check = run('-d', 'tcv_map52_copy', '-At', '-c', '''
             SELECT COUNT(*), COUNT(DISTINCT map_no), MIN(map_no), MAX(map_no),
                    (SELECT COUNT(*) FROM exhibits a JOIN exhibits b ON a.id < b.id AND a.is_active AND b.is_active
@@ -54,5 +58,23 @@ def test_load_52_zones_on_database_copy():
         assert (int(total), int(distinct), int(lo), int(hi)) == (52, 52, 1, 52)
         assert int(overlaps) == 0 and int(unnumbered) == 0 and centred == 't'
         assert float(far) < 60          # khu nào cũng gần lối đi bộ -> tìm đường được
+        # mạng lối đi liền một mảnh, từ cổng chính đi tới được mọi khu
+        parts = run('-d', 'tcv_map52_copy', '-At', '-c', """SELECT COUNT(DISTINCT component) FROM pgr_connectedComponents(
+            'SELECT id, source, target, cost, reverse_cost FROM walkways')""").stdout.strip()
+        assert parts == '1'
     finally:
         run('-c', 'DROP DATABASE IF EXISTS tcv_map52_copy')
+
+
+def test_art_map_round_trip():
+    """Pixel sơ đồ -> toạ độ thật -> pixel sơ đồ phải trùng (cọc hiện đúng chỗ số in)."""
+    import artmap
+    if not artmap.available():
+        pytest.skip('thiếu ảnh sơ đồ')
+    pts = [(300.0, 400.0), (900.0, 700.0), (1400.0, 1100.0)]
+    real = [artmap.to_latlng(x, y) for x, y in pts]
+    back = artmap.to_art_many(real)
+    assert all(abs(a[0] - b[0]) < 0.5 and abs(a[1] - b[1]) < 0.5 for a, b in zip(pts, back))
+    # 50 m thật trên sơ đồ khoảng 80-200 px (sơ đồ co giãn theo vùng)
+    assert 60 < artmap.metres_to_px(*real[1], 50) < 250
+    assert artmap.leaflet(10, 20) == [-20, 10] and artmap.from_leaflet(-20, 10) == (10, 20)
