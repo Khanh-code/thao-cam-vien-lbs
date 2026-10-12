@@ -65,13 +65,21 @@ p, li {{ line-height: 1.6; }}
 .stButton button[kind="primary"]:hover {{ background: #174A35; color: #fff; }}
 button:focus-visible, input:focus-visible {{ outline: 2px solid var(--lotus) !important; outline-offset: 2px; }}
 
-/* Danh sách khu: hàng chữ căn trái, vạch màu khớp màu vùng trên bản đồ */
-[class*="st-key-zone_"] button {{ justify-content: flex-start; text-align: left; border: none; border-left: 4px solid var(--zc, var(--green));
-  border-radius: 0 6px 6px 0; background: transparent; padding: 6px 12px; min-height: 2.3rem; }}
-[class*="st-key-zone_"] button:hover {{ background: #fff; color: var(--ink); }}
-[class*="st-key-zone_"] button > div, [class*="st-key-zone_"] button [data-testid="stMarkdownContainer"] {{ justify-content: flex-start; width: 100%; }}
-[class*="st-key-zone_"] button p {{ font-size: .95rem; text-align: left; }}
-[class*="st-key-zone_"].tcv-active button, [class*="st-key-zone_"] button:focus {{ background: #fff; font-weight: 600; }}
+/* Danh sách khu (gom theo nhóm) và kết quả tìm kiếm: hàng chữ gọn, căn trái, ngăn bằng đường kẻ mảnh */
+[class*="st-key-zone_"] button, [class*="st-key-found_"] button {{ justify-content: flex-start; text-align: left; border: none;
+  border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 4px 2px; min-height: 2.1rem; }}
+[class*="st-key-zone_"] button:hover, [class*="st-key-found_"] button:hover {{ background: transparent; color: var(--green); }}
+[class*="st-key-zone_"] button > div, [class*="st-key-zone_"] button [data-testid="stMarkdownContainer"],
+[class*="st-key-found_"] button > div, [class*="st-key-found_"] button [data-testid="stMarkdownContainer"] {{ justify-content: flex-start; width: 100%; }}
+[class*="st-key-zone_"] button p {{ font-size: .92rem; text-align: left; }}
+[class*="st-key-found_"] button p {{ font-size: .98rem; font-weight: 600; text-align: left; }}
+[class*="st-key-found_"] {{ margin-bottom: -10px; }}
+[class*="st-key-zone_"] button:focus, [class*="st-key-found_"] button:focus {{ background: transparent; font-weight: 600; }}
+/* Nút gợi ý nhanh dưới ô tìm kiếm */
+[class*="st-key-quick_"] button {{ min-height: 2rem; padding: 2px 6px; border-radius: 999px; }}
+[class*="st-key-quick_"] button p {{ font-size: .8rem; white-space: nowrap; }}
+[data-testid="stSidebar"] [data-testid="stExpander"] details {{ border: none; border-bottom: 1px solid var(--line); border-radius: 0; }}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary p {{ font-weight: 600; font-size: .93rem; }}
 
 /* Thanh trên cùng */
 .tcv-brand {{ font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--ink); padding-top: .35rem; }}

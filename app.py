@@ -15,6 +15,7 @@ import tracking
 import ui
 import location
 import artmap
+import search
 import streamlit.components.v1 as components
 from zones import zone_images
 
@@ -191,19 +192,40 @@ st.markdown(ui.zone_css([(x['id'], zone_color(x)) for x in all_exhibits]), unsaf
 
 # ===== Thanh bên: tìm, danh sách khu, đi bộ tới =====
 with st.sidebar:
-    st.markdown('<div class="tcv-side-title">' + ui.esc(tr('Tìm khu tham quan', 'Find a zone', '查找展区')) + '</div>', unsafe_allow_html=True)
-    keyword = st.text_input(tr('Tìm khu tham quan', 'Find a zone', '查找展区'), label_visibility='collapsed',
-                            placeholder=tr('Thử gõ: voi, hổ, lan…', 'Try: elephant, tiger, orchid…', '例如：大象、老虎、兰花…'))
-    shown = all_exhibits
-    if keyword:
-        k = keyword.lower().strip()
-        shown = [x for x in all_exhibits if k in x['name'].lower() or k in (x['description'] or '').lower()]
-        if not shown:
-            st.caption(tr('Không có khu nào khớp. Thử một từ khác.', 'No zone matches. Try another word.', '没有匹配的展区，请换个词试试。'))
-    st.markdown('<div class="tcv-side-title">' + ui.esc(tr(f'Các khu ({len(shown)})', f'Zones ({len(shown)})', f'展区（{len(shown)}）')) + '</div>', unsafe_allow_html=True)
-    for item in shown:
-        if st.button(ui.zone_label(item), key=f'zone_{item["id"]}', use_container_width=True):
-            go_to(item)
+    st.markdown('<div class="tcv-side-title">' + ui.esc(tr('Bạn muốn tìm gì?', 'What are you looking for?', '您想找什么？')) + '</div>', unsafe_allow_html=True)
+    keyword = st.text_input(tr('Bạn muốn tìm gì?', 'What are you looking for?', '您想找什么？'), key='search_q', label_visibility='collapsed',
+                            placeholder=tr('Ví dụ: chỗ ăn, nhà vệ sinh, cho bé chơi, con hổ…',
+                                           'e.g. food, toilet, for kids, tigers…', '例如：吃饭、洗手间、孩子玩、老虎…'))
+    quick = [(tr('Vệ sinh', 'Toilet', '洗手间'), 'nhà vệ sinh'), (tr('Ăn uống', 'Food', '餐饮'), 'ăn uống'),
+             (tr('Cho bé', 'For kids', '孩子'), 'trẻ em')]
+    for col, (label, query) in zip(st.columns(len(quick)), quick):
+        col.button(label, key=f'quick_{query}', use_container_width=True,
+                   on_click=lambda q=query: st.session_state.update(search_q=q))
+    if keyword.strip():
+        # Tìm theo ý định (search.py): tên, thuyết minh 3 thứ tiếng, từ đồng nghĩa, gõ không dấu / sai chính tả
+        other_texts = {}
+        for code in LANGUAGES:
+            for zid, row in (translations(code) or {}).items():
+                other_texts.setdefault(zid, []).extend([row.get('name') or '', row.get('description') or ''])
+        found, note = search.search(keyword, all_exhibits, other_texts,
+                                    user=(st.session_state.user_lat, st.session_state.user_lng), lang=language)
+        if note:
+            st.info(note)
+        for item, _, why, dist in found:
+            if st.button(ui.zone_label(item), key=f'found_{item["id"]}', use_container_width=True):
+                st.session_state.target_route_id = item['id']     # chỉ đường tới điểm gần nhất của khu
+                st.rerun()
+            st.caption(' · '.join(x for x in [why, tr(f'cách {dist:.0f} m', f'{dist:.0f} m away', f'距离 {dist:.0f} 米')] if x))
+        if not found and not note:
+            st.caption(tr('Chưa tìm thấy khu phù hợp. Thử nói khác đi, ví dụ "chỗ uống nước" hay "xem khỉ".',
+                          'Nothing matched yet. Try other words, e.g. "drinks" or "monkeys".', '没有找到，换个说法试试，比如“喝水”或“猴子”。'))
+    else:
+        st.markdown('<div class="tcv-side-title">' + ui.esc(tr('Khu tham quan', 'Zones', '展区')) + '</div>', unsafe_allow_html=True)
+        for group, members in search.group_items(all_exhibits, language):
+            with st.expander(group):
+                for item in members:
+                    if st.button(ui.zone_label(item), key=f'zone_{item["id"]}', use_container_width=True):
+                        go_to(item)
 
     st.markdown('<div class="tcv-side-title">' + ui.esc(tr('Đi bộ tới', 'Walk to', '步行前往')) + '</div>', unsafe_allow_html=True)
     route_options = {item['id']: ui.zone_label(item) for item in all_exhibits}
@@ -225,8 +247,10 @@ with st.sidebar:
 
 # ===== Dẫn đường: tới nơi chưa? (khu đích đang được thuyết minh = đã vào vùng 50 m của khu đó) =====
 arrived_name = None
-if st.session_state.target_route_id and target_raw and target_raw['id'] == st.session_state.target_route_id:
-    arrived_name = next((x['name'] for x in all_exhibits if x['id'] == target_raw['id']), '')
+goal = next((x for x in all_exhibits if x['id'] == st.session_state.target_route_id), None) if st.session_state.target_route_id else None
+if goal and ((target_raw and target_raw['id'] == goal['id']) or
+             search.nearest_spot(goal, st.session_state.user_lat, st.session_state.user_lng)[1] < 15):   # tới cọc phụ cũng tính
+    arrived_name = goal['name']
     st.session_state.target_route_id = None
 
 col_map, col_info = st.columns([7, 5], gap='large')
@@ -284,7 +308,9 @@ with col_map:
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item['id'] == st.session_state.target_route_id), None)
         if target_info:
-            path_segments = database_read(get_shortest_path, st.session_state.user_lat, st.session_state.user_lng, target_info['lat'], target_info['lng'])
+            # Khu có nhiều điểm (nhà vệ sinh, nhà ăn...): dẫn tới điểm GẦN khách nhất
+            (goal_lat, goal_lng), _ = search.nearest_spot(target_info, st.session_state.user_lat, st.session_state.user_lng)
+            path_segments = database_read(get_shortest_path, st.session_state.user_lat, st.session_state.user_lng, goal_lat, goal_lng)
             if path_segments:
                 full_walk_path = [(st.session_state.user_lat, st.session_state.user_lng)]
                 total_distance = 0.0
@@ -293,7 +319,7 @@ with col_map:
                         if full_walk_path[-1] != c:
                             full_walk_path.append(c)
                     total_distance += float(seg.get('cost', 0.0))
-                target_pt = (target_info['lat'], target_info['lng'])
+                target_pt = (goal_lat, goal_lng)
                 if full_walk_path[-1] != target_pt:
                     full_walk_path.append(target_pt)
                 folium.PolyLine(project_many(full_walk_path), color=ui.LOTUS, weight=6, opacity=0.95, dash_array='1, 11', line_cap='round',
