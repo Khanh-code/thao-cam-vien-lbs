@@ -76,10 +76,15 @@ if admin_mode and not st.sidebar.toggle(tr('Xem giao diện khách', 'Preview vi
     components.html("<script>window.parent.document.getElementById('tcv-tabbar')?.remove()</script>", height=0)
     st.stop()
 
+# Vị trí bắt đầu mặc định: CỔNG CHÍNH (đường Nguyễn Bỉnh Khiêm, đầu đường Lê Duẩn).
+# Chưa di chuyển (chưa chạm bản đồ / chưa có GPS) thì chưa thuyết minh, chưa lưu vết, chưa tính lượt ghé.
+GATE = (10.786885, 106.70554)
 if 'user_lat' not in st.session_state:
-    st.session_state.user_lat = 10.78775
+    st.session_state.user_lat = GATE[0]
 if 'user_lng' not in st.session_state:
-    st.session_state.user_lng = 106.7056
+    st.session_state.user_lng = GATE[1]
+if 'started' not in st.session_state:
+    st.session_state.started = False
 if 'img_index' not in st.session_state:
     st.session_state.img_index = 0
 if 'target_route_id' not in st.session_state:
@@ -124,6 +129,7 @@ if gps_box.toggle(tr('Dùng GPS của tôi', 'Use my GPS', '使用我的GPS'), k
                 st.session_state.img_index = 0
             st.session_state.last_gps = reading
             st.session_state.user_lat, st.session_state.user_lng = gps['lat'], gps['lng']
+            st.session_state.started = True      # GPS: bắt đầu từ chính vị trí điện thoại
         acc = f' (±{gps["accuracy_m"]} m)' if gps['accuracy_m'] is not None else ''
         gps_box.caption(tr(f'Đang theo dõi vị trí GPS{acc}. Bản đồ sẽ di chuyển theo bạn.',
                               f'Following your GPS position{acc}. The map moves with you.',
@@ -161,15 +167,17 @@ if visitor_id and st.query_params.get('v') != visitor_id:
     # Gắn mã khách vào URL để tải lại trang vẫn giữ tài khoản; mã cũ hết hạn sẽ được thay mã mới
     st.query_params['v'] = visitor_id
 user_pos = (round(st.session_state.user_lat, 6), round(st.session_state.user_lng, 6))
-if visitor_id and st.session_state.get('last_logged_pos') != (visitor_id, user_pos):
+if visitor_id and st.session_state.started and st.session_state.get('last_logged_pos') != (visitor_id, user_pos):
     tracking_call(tracking.record_position, visitor_id, st.session_state.user_lat, st.session_state.user_lng)
     st.session_state.last_logged_pos = (visitor_id, user_pos)
 
 # ===== Geofencing 50 m: ưu tiên khu chưa ghé, rồi khu bên phải hướng đi =====
 nearby = None
-if visitor_id:
+if not st.session_state.started:
+    nearby = []                                   # đang đứng ở cổng, chưa bắt đầu đi
+elif visitor_id:
     nearby = tracking_call(tracking.nearby_for_visitor, visitor_id, st.session_state.user_lat, st.session_state.user_lng, 50.0)
-if nearby is None:
+if nearby is None and st.session_state.started:
     nearby = database_read(query_nearby, st.session_state.user_lat, st.session_state.user_lng, radius=50.0)
 target_raw = None
 if not nearby:
@@ -197,6 +205,7 @@ def zone_color(item):
 
 
 def go_to(item):
+    st.session_state.started = True
     st.session_state.user_lat = item['lat']
     st.session_state.user_lng = item['lng']
     st.session_state.img_index = 0
@@ -387,6 +396,7 @@ with col_map:
             if art:   # chạm trên sơ đồ -> đổi ra toạ độ thật
                 c_lat, c_lng = artmap.to_latlng(*artmap.from_leaflet(c_lat, c_lng))
             st.session_state.user_lat, st.session_state.user_lng = c_lat, c_lng
+            st.session_state.started = True
             st.session_state.img_index = 0
             st.rerun()
 
@@ -435,6 +445,13 @@ with col_info:
                                  '' if target['translated'] else tr('', 'This zone has no English text yet, so the Vietnamese text is shown.',
                                                                      '该展区暂无中文内容，显示越南语原文。')),
                         unsafe_allow_html=True)
+    elif not st.session_state.started:
+        st.markdown(ui.empty_state(
+            tr('Bạn đang ở cổng chính', 'You are at the main gate', '您在正门'),
+            tr('Bật "Dùng GPS của tôi" để app theo bạn đi, hoặc chạm vào bản đồ chỗ bạn muốn tới. Tới gần khu nào, app sẽ tự kể về khu đó.',
+               'Turn on "Use my GPS" so the app follows you, or tap the map where you want to go. Get close to a zone and its story plays.',
+               '打开"使用我的GPS"让应用跟随您，或点击地图上您想去的地方。走近展区即可自动播放讲解。')),
+            unsafe_allow_html=True)
     else:
         # Gợi ý khu gần nhất ngoài bán kính để khách biết đi tiếp đâu
         closest = min(all_exhibits, key=lambda x: ui.haversine_m(st.session_state.user_lat, st.session_state.user_lng, x['lat'], x['lng']))

@@ -138,6 +138,7 @@ def test_app_end_to_end_priority_and_tracking():
     from streamlit.testing.v1 import AppTest
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=60)
     app.session_state['user_lat'], app.session_state['user_lng'] = EQUAL
+    app.session_state['started'] = True
     app.run()
     assert not app.exception, app.exception
     first = page_text(app, 'tcv-zone')[0]
@@ -149,6 +150,7 @@ def test_app_end_to_end_priority_and_tracking():
     app.session_state['user_lat'], app.session_state['user_lng'] = (10.7850, 106.7000)   # chỗ không có phân khu
     app.run()
     app.session_state['user_lat'], app.session_state['user_lng'] = EQUAL
+    app.session_state['started'] = True
     app.run()
     assert not app.exception
     assert page_text(app, 'tcv-zone')[0] != first

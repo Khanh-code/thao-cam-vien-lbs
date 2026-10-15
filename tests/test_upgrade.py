@@ -139,7 +139,8 @@ def test_guest_ui_languages_and_session_isolation(monkeypatch):
     assert any('Saigon Zoo and Botanical Gardens (Thảo Cầm Viên)' in h for h in page_text(english, 'tcv-hero'))
     assert vietnamese.radio(key='lang').value == 'vi'
     english.session_state['user_lat'] = 10.8
-    assert vietnamese.session_state['user_lat'] == 10.78775
+    assert vietnamese.session_state['user_lat'] == 10.786885      # mặc định: cổng chính
+    assert vietnamese.session_state['started'] is False and any('cổng chính' in t for t in page_text(vietnamese, 'tcv-empty'))
     assert len(english.text_area) == 0  # guest cannot access the content editor
 
 def test_original_images_and_narration_remain_available(monkeypatch):
@@ -155,7 +156,9 @@ def test_original_images_and_narration_remain_available(monkeypatch):
     monkeypatch.setattr(streamlit_folium, 'st_folium', lambda *args, **kwargs: {})
     spoken = []
     monkeypatch.setattr(content, 'synthesize', lambda t, l: spoken.append((t, l)) or b'ID3fake')
-    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'))
+    app.session_state['started'] = True
+    app.run()
     assert not app.exception
     assert len(app.get('image')) == 1, repr(app)
     assert len(app.get('audio')) == 1
