@@ -30,7 +30,12 @@ html, body, .stApp, .stMarkdown, button, input, textarea, [data-testid="stSideba
   font-family: 'Be Vietnam Pro', 'Noto Sans SC', system-ui, sans-serif;
 }}
 .stApp {{ background: #fff; color: var(--ink); }}
-#MainMenu, footer, [data-testid="stStatusWidget"], [data-testid="stToolbar"] {{ visibility: hidden; }}
+#MainMenu, footer, [data-testid="stStatusWidget"], [data-testid="stMainMenu"], [data-testid="stToolbarActions"],
+[data-testid="stAppDeployButton"] {{ visibility: hidden; }}
+/* Nút mở lại thanh bên (nằm trong thanh công cụ trên cùng): luôn hiện, nhất là trên điện thoại */
+[data-testid="stExpandSidebarButton"] {{ visibility: visible !important; background: #fff; border: 1px solid var(--line);
+  border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }}
+[data-testid="stExpandSidebarButton"] span {{ color: var(--green) !important; }}
 header[data-testid="stHeader"] {{ background: transparent; height: 2.6rem; }}
 .block-container {{ padding-top: 1.2rem; padding-bottom: 4rem; max-width: 1380px; }}
 h1, h2, h3, h4 {{ color: var(--ink); letter-spacing: -0.02em; }}
