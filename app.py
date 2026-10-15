@@ -175,6 +175,7 @@ target_raw = None
 if not nearby:
     # Đã rời khỏi mọi phân khu -> quên phân khu đang thuyết minh, lần quay lại sẽ chọn lại theo ưu tiên
     st.session_state.narration = (visitor_id, user_pos, None)
+    st.session_state.inside_zone = None          # ra khỏi vùng -> lần vào lại sẽ tính thêm một lượt ghé
 else:
     # Khách chưa di chuyển -> giữ phân khu đang thuyết minh (tránh nhảy qua lại sau khi đánh dấu "đã ghé")
     sticky = st.session_state.get('narration')
@@ -183,8 +184,10 @@ else:
     if target_raw is None:
         target_raw = nearby[0]
         st.session_state.narration = (visitor_id, user_pos, target_raw['id'])
-        if visitor_id:
-            tracking_call(tracking.mark_visited, visitor_id, target_raw['id'])
+    # Một LƯỢT GHÉ = mỗi lần đi vào vùng thuyết minh của khu (đi loanh quanh trong khu không đếm thêm)
+    if visitor_id and st.session_state.get('inside_zone') != target_raw['id']:
+        tracking_call(tracking.mark_visited, visitor_id, target_raw['id'])
+        st.session_state.inside_zone = target_raw['id']
 
 
 def zone_color(item):

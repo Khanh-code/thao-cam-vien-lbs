@@ -11,7 +11,7 @@ Luồng hoạt động:
 Mọi hàm đều "xuống cấp nhẹ nhàng": chưa chạy migration 003 thì app vẫn chạy như cũ (không lưu vết).
 """
 import uuid
-from psycopg2.errors import UndefinedTable
+from psycopg2.errors import UndefinedTable, UndefinedColumn
 from config import setting
 from db_services import database_cursor, active_sql
 
@@ -117,11 +117,27 @@ def nearby_for_visitor(visitor_id, lat, lng, radius=50.0, tie_metres=None):
 
 
 def mark_visited(visitor_id, exhibit_id):
-    """Ghi nhận khách đã được thuyết minh phân khu (1 lần / ngày)."""
+    """Ghi nhận MỘT LƯỢT GHÉ: mỗi lần khách đi vào vùng thuyết minh của khu (quay lại thì đếm thêm lượt)."""
     with database_cursor() as cur:
-        cur.execute(f'''INSERT INTO exhibit_visits(visitor_id, exhibit_id, visit_date)
-                        VALUES (%s, %s, {LOCAL_TODAY})
-                        ON CONFLICT DO NOTHING''', (visitor_id, exhibit_id))
+        try:
+            cur.execute(f'''INSERT INTO exhibit_visits(visitor_id, exhibit_id, visit_date)
+                            VALUES (%s, %s, {LOCAL_TODAY})
+                            ON CONFLICT (visitor_id, exhibit_id, visit_date)
+                            DO UPDATE SET visit_count = exhibit_visits.visit_count + 1, last_visited_at = now()''',
+                        (visitor_id, exhibit_id))
+        except UndefinedColumn:          # database chưa có cột visit_count (migration 009)
+            cur.connection.rollback()
+            cur.execute(f'''INSERT INTO exhibit_visits(visitor_id, exhibit_id, visit_date)
+                            VALUES (%s, %s, {LOCAL_TODAY}) ON CONFLICT DO NOTHING''', (visitor_id, exhibit_id))
+
+
+def _visits_expr(alias='v'):
+    """Số lượt ghé: SUM(visit_count); database cũ chưa có cột -> đếm số dòng."""
+    with database_cursor() as cur:
+        cur.execute("""SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_name = 'exhibit_visits' AND column_name = 'visit_count') AS ok""")
+        has = cur.fetchone()['ok']
+    return f'COALESCE(SUM({alias}.visit_count), 0)' if has else f'COUNT({alias}.visitor_id)'
 
 
 def visited_ids(visitor_id):
@@ -149,8 +165,9 @@ def track_length_metres(visitor_id):
 
 def daily_stats(day):
     """Số khách (distinct) đã ghé từng phân khu trong 1 ngày. Phân khu 0 lượt vẫn hiển thị."""
+    visits = _visits_expr()
     with database_cursor() as cur:
-        cur.execute('''SELECT e.id, e.name, COUNT(DISTINCT v.visitor_id) AS visitors
+        cur.execute(f'''SELECT e.id, e.name, {visits} AS visitors
                        FROM exhibits e
                        LEFT JOIN exhibit_visits v ON v.exhibit_id = e.id AND v.visit_date = %s
                        GROUP BY e.id, e.name
@@ -162,9 +179,10 @@ def weekly_stats(end_day, days=7):
     """Số khách (distinct) mỗi ngày của từng phân khu trong `days` ngày kết thúc ở end_day.
     Trả về các dòng (id, name, map_no, day, visitors); ngày không ai ghé vẫn có dòng với 0 khách."""
     numbered = "COALESCE(e.map_no, NULL)" if _has_map_no() else "NULL::integer"
+    visits = _visits_expr()
     with database_cursor() as cur:
         cur.execute(f'''WITH d AS (SELECT generate_series(%(end)s::date - (%(n)s - 1), %(end)s::date, interval '1 day')::date AS day)
-                       SELECT e.id, e.name, {numbered} AS map_no, d.day, COUNT(DISTINCT v.visitor_id) AS visitors
+                       SELECT e.id, e.name, {numbered} AS map_no, d.day, {visits} AS visitors
                        FROM exhibits e CROSS JOIN d
                        LEFT JOIN exhibit_visits v ON v.exhibit_id = e.id AND v.visit_date = d.day
                        WHERE {active_sql('e.')}
@@ -188,6 +206,7 @@ def summary(day):
               (SELECT COUNT(*) FROM visitors
                  WHERE (created_at AT TIME ZONE '{TIMEZONE}')::date = %(d)s) AS new_visitors,
               (SELECT COUNT(DISTINCT visitor_id) FROM exhibit_visits WHERE visit_date = %(d)s) AS active_visitors,
+              (SELECT {_visits_expr('x')} FROM exhibit_visits x WHERE x.visit_date = %(d)s) AS visits,
               (SELECT COUNT(*) FROM visitor_tracks
                  WHERE (recorded_at AT TIME ZONE '{TIMEZONE}')::date = %(d)s) AS track_points''', {'d': day})
         return cur.fetchone()

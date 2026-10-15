@@ -198,3 +198,10 @@ CREATE TABLE IF NOT EXISTS exhibit_pins (
 );
 CREATE INDEX IF NOT EXISTS idx_exhibit_pins_exhibit ON exhibit_pins(exhibit_id);
 COMMIT;
+
+-- ===== 009_visit_count.sql =====
+-- 009: Đếm SỐ LƯỢT GHÉ mỗi khu (khách quay lại cùng khu nhiều lần thì đếm nhiều lần).
+BEGIN;
+ALTER TABLE exhibit_visits ADD COLUMN IF NOT EXISTS visit_count integer NOT NULL DEFAULT 1;
+ALTER TABLE exhibit_visits ADD COLUMN IF NOT EXISTS last_visited_at timestamptz NOT NULL DEFAULT now();
+COMMIT;

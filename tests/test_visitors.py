@@ -126,10 +126,11 @@ def test_track_and_daily_stats():
     before = {r['id']: r['visitors'] for r in tracking.daily_stats(day)}
     rows = tracking.nearby_for_visitor(vid, *EQUAL)
     tracking.mark_visited(vid, rows[0]['id'])
-    tracking.mark_visited(vid, rows[0]['id'])           # ghé lại cùng ngày -> không đếm 2 lần
+    tracking.mark_visited(vid, rows[0]['id'])           # quay lại khu cùng ngày -> thêm 1 lượt ghé
     after = {r['id']: r['visitors'] for r in tracking.daily_stats(day)}
-    assert after[rows[0]['id']] == before[rows[0]['id']] + 1
-    assert tracking.summary(day)['active_visitors'] >= 1
+    assert after[rows[0]['id']] == before[rows[0]['id']] + 2
+    assert tracking.summary(day)['active_visitors'] >= 1 and tracking.summary(day)['visits'] >= 2
+    assert tracking.visited_ids(vid) == {rows[0]['id']}
 
 
 @needs_db

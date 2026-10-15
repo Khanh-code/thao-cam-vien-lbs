@@ -12,6 +12,8 @@ import streamlit as st
 from config import DB_CONFIG, setting
 
 SQL_FILE = Path(__file__).resolve().parent / 'neon_52_phan_khu.sql'
+# Thay đổi cấu trúc nhỏ, chạy mỗi lần khởi động (IF NOT EXISTS nên chạy lại vẫn an toàn)
+SCHEMA_SQL = Path(__file__).resolve().parent / 'migrations' / '009_visit_count.sql'
 
 
 def _fingerprint():
@@ -29,6 +31,11 @@ def ensure_map_data():
     try:
         with conn.cursor() as cur:
             cur.execute('CREATE TABLE IF NOT EXISTS app_meta (key text PRIMARY KEY, value text NOT NULL)')
+            if SCHEMA_SQL.exists():
+                try:
+                    cur.execute(SCHEMA_SQL.read_text(encoding='utf-8'))
+                except Exception:
+                    logging.exception('Không chạy được %s', SCHEMA_SQL.name)
             # (không dùng advisory lock: Neon pooler đổi kết nối giữa các lệnh nên khoá có thể bị treo)
             cur.execute("SELECT value FROM app_meta WHERE key = 'map_data'")
             row = cur.fetchone()

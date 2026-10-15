@@ -441,7 +441,9 @@ def _explain_save_error(error, tr):
     st.code(f'{type(error).__name__}: {str(error).strip()[:800]}', language=None)
 
 
+@st.fragment(run_every=20)
 def _visitor_stats(tr):
+    """Tự cập nhật mỗi 20 giây (chỉ phần thống kê chạy lại, không tải lại trang, không phải đăng nhập lại)."""
     import datetime as dt
     import altair as alt
     try:
@@ -461,9 +463,10 @@ def _visitor_stats(tr):
         st.code(f'{type(stats_error).__name__}: {str(stats_error).strip()[:600]}', language=None)
         return
     m1, m2, m3 = st.columns(3)
-    m1.metric('Khách mới trong ngày', s['new_visitors'])
-    m2.metric('Khách đã ghé ít nhất 1 khu', s['active_visitors'])
+    m1.metric('Khách trong ngày', s['new_visitors'])
+    m2.metric('Lượt ghé các khu trong ngày', s.get('visits', s['active_visitors']))
     m3.metric('Điểm lưu vết trong ngày', s['track_points'])
+    st.caption(f'Tự cập nhật mỗi 20 giây · lần cuối {dt.datetime.now().astimezone(dt.timezone(dt.timedelta(hours=7))):%H:%M:%S}')
 
     label = lambda r: f"{r['map_no']} · {r['name']}" if r.get('map_no') is not None else r['name']
     totals, before = {}, {}
@@ -477,18 +480,18 @@ def _visitor_stats(tr):
     ranked = sorted(totals, key=lambda k: (-totals[k], k))
     weekday = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
 
-    st.markdown('#### Lượt khách theo ngày trong tuần')
+    st.markdown('#### Lượt ghé theo ngày trong tuần')
     picked = st.multiselect('Khu hiển thị trên biểu đồ', ranked, default=ranked[:5], key='stats_zones',
                             help='Mặc định là 5 khu đông nhất tuần. Thêm hoặc bớt khu để so sánh.')
     rows = [{'Ngày': f"{weekday[r['day'].weekday()]} {r['day']:%d/%m}", 'Thứ tự': r['day'].toordinal(),
-             'Phân khu': label(r), 'Số khách': int(r['visitors'])} for r in week if label(r) in picked]
+             'Phân khu': label(r), 'Lượt ghé': int(r['visitors'])} for r in week if label(r) in picked]
     if rows:
         chart = (alt.Chart(alt.Data(values=rows))
                  .mark_line(point=alt.OverlayMarkDef(size=60, filled=True), strokeWidth=2.5)
                  .encode(x=alt.X('Ngày:N', sort=alt.SortField('Thứ tự'), title=None, axis=alt.Axis(labelAngle=0)),
-                         y=alt.Y('Số khách:Q', title='Số khách', axis=alt.Axis(tickMinStep=1)),
+                         y=alt.Y('Lượt ghé:Q', title='Lượt ghé', axis=alt.Axis(tickMinStep=1)),
                          color=alt.Color('Phân khu:N', legend=alt.Legend(orient='bottom', columns=2, title=None)),
-                         tooltip=['Ngày:N', 'Phân khu:N', 'Số khách:Q'])
+                         tooltip=['Ngày:N', 'Phân khu:N', 'Lượt ghé:Q'])
                  .properties(height=360))
         st.altair_chart(chart, use_container_width=True)
     else:
@@ -500,14 +503,13 @@ def _visitor_stats(tr):
     busy, quiet = st.columns(2)
     with busy:
         st.markdown('**Đông nhất tuần**')
-        st.dataframe([{'Phân khu': k, 'Lượt khách': totals[k], 'So với tuần trước': change(k)} for k in ranked[:5]],
+        st.dataframe([{'Phân khu': k, 'Lượt ghé': totals[k], 'So với tuần trước': change(k)} for k in ranked[:5]],
                      hide_index=True, use_container_width=True)
     with quiet:
         st.markdown('**Vắng nhất tuần**')
-        st.dataframe([{'Phân khu': k, 'Lượt khách': totals[k], 'So với tuần trước': change(k)} for k in ranked[::-1][:5]],
+        st.dataframe([{'Phân khu': k, 'Lượt ghé': totals[k], 'So với tuần trước': change(k)} for k in ranked[::-1][:5]],
                      hide_index=True, use_container_width=True)
-    period = 'mỗi ngày' if tracking.RESET_PERIOD == 'day' else 'mỗi tuần (thứ Hai)'
-    st.caption(f'Mỗi khách được đếm 1 lần cho mỗi khu mỗi ngày. Tài khoản khách tạm tự reset {period}.')
+
 
 
 def _qr_code(tr):
