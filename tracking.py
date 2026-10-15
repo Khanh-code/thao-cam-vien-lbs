@@ -158,6 +158,29 @@ def daily_stats(day):
         return cur.fetchall()
 
 
+def weekly_stats(end_day, days=7):
+    """Số khách (distinct) mỗi ngày của từng phân khu trong `days` ngày kết thúc ở end_day.
+    Trả về các dòng (id, name, map_no, day, visitors); ngày không ai ghé vẫn có dòng với 0 khách."""
+    numbered = "COALESCE(e.map_no, NULL)" if _has_map_no() else "NULL::integer"
+    with database_cursor() as cur:
+        cur.execute(f'''WITH d AS (SELECT generate_series(%(end)s::date - (%(n)s - 1), %(end)s::date, interval '1 day')::date AS day)
+                       SELECT e.id, e.name, {numbered} AS map_no, d.day, COUNT(DISTINCT v.visitor_id) AS visitors
+                       FROM exhibits e CROSS JOIN d
+                       LEFT JOIN exhibit_visits v ON v.exhibit_id = e.id AND v.visit_date = d.day
+                       WHERE {active_sql('e.')}
+                       GROUP BY 1, 2, 3, 4
+                       ORDER BY d.day, e.id''', {'end': end_day, 'n': days})
+        return cur.fetchall()
+
+
+def _has_map_no():
+    try:
+        from db_services import map_numbers
+        return map_numbers()
+    except Exception:
+        return False
+
+
 def summary(day):
     """Tổng quan 1 ngày: số tài khoản khách tạo mới, số khách có ghé ít nhất 1 phân khu, số điểm lưu vết."""
     with database_cursor() as cur:

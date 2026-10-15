@@ -455,9 +455,10 @@ def _visitor_stats(tr):
         s = tracking.summary(day)
         week = tracking.weekly_stats(day, 7)
         prev = tracking.weekly_stats(day - dt.timedelta(days=7), 7)
-    except Exception:
+    except Exception as stats_error:
         logging.exception('Visitor statistics failed')
-        st.error('Không tải được thống kê.')
+        st.error('Không tải được thống kê. Lỗi như sau:')
+        st.code(f'{type(stats_error).__name__}: {str(stats_error).strip()[:600]}', language=None)
         return
     m1, m2, m3 = st.columns(3)
     m1.metric('Khách mới trong ngày', s['new_visitors'])
