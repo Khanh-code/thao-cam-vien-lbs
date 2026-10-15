@@ -21,6 +21,9 @@ if RESET_PERIOD not in ('day', 'week'):
     raise ValueError('visitor.reset_period must be "day" or "week"')
 # Hai phân khu có khoảng cách chênh nhau <= ngưỡng này (mét) được xem là "cùng khoảng cách"
 TIE_METRES = float(setting('visitor', 'tie_metres', 5.0))
+# Bán kính phát thuyết minh (mét), tính từ MÉP vùng tròn của khu. Sơ đồ có nhiều khu sát nhau
+# (gần nhất ~13 m) nên dùng 10 m thay vì 50 m để không lẫn sang khu bên cạnh.
+NARRATION_RADIUS_M = float(setting('visitor', 'narration_radius', 10.0))
 
 # Ngày hiện tại theo giờ Việt Nam (database Neon chạy giờ UTC)
 LOCAL_TODAY = f"(now() AT TIME ZONE '{TIMEZONE}')::date"
@@ -61,7 +64,7 @@ def record_position(visitor_id, lat, lng):
                        VALUES (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326))''', (visitor_id, lng, lat))
 
 
-def nearby_for_visitor(visitor_id, lat, lng, radius=50.0, tie_metres=None):
+def nearby_for_visitor(visitor_id, lat, lng, radius=None, tie_metres=None):
     """Geofencing có ngữ cảnh khách.
 
     - Lọc các phân khu trong bán kính bằng ST_DWithin (dùng index GiST biểu thức của migration 001).
@@ -74,6 +77,7 @@ def nearby_for_visitor(visitor_id, lat, lng, radius=50.0, tie_metres=None):
     - Còn lại xếp theo khoảng cách tăng dần.
     """
     tie = TIE_METRES if tie_metres is None else float(tie_metres)
+    radius = NARRATION_RADIUS_M if radius is None else float(radius)
     active = active_sql('e.')
     query = f'''
         WITH me AS (

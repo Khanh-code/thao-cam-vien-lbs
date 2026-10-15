@@ -171,14 +171,15 @@ if visitor_id and st.session_state.started and st.session_state.get('last_logged
     tracking_call(tracking.record_position, visitor_id, st.session_state.user_lat, st.session_state.user_lng)
     st.session_state.last_logged_pos = (visitor_id, user_pos)
 
-# ===== Geofencing 50 m: ưu tiên khu chưa ghé, rồi khu bên phải hướng đi =====
+# ===== Geofencing (bán kính nhỏ, xem tracking.NARRATION_RADIUS_M): ưu tiên khu chưa ghé, rồi khu bên phải hướng đi =====
+RADIUS = tracking.NARRATION_RADIUS_M
 nearby = None
 if not st.session_state.started:
     nearby = []                                   # đang đứng ở cổng, chưa bắt đầu đi
 elif visitor_id:
-    nearby = tracking_call(tracking.nearby_for_visitor, visitor_id, st.session_state.user_lat, st.session_state.user_lng, 50.0)
+    nearby = tracking_call(tracking.nearby_for_visitor, visitor_id, st.session_state.user_lat, st.session_state.user_lng, RADIUS)
 if nearby is None and st.session_state.started:
-    nearby = database_read(query_nearby, st.session_state.user_lat, st.session_state.user_lng, radius=50.0)
+    nearby = database_read(query_nearby, st.session_state.user_lat, st.session_state.user_lng, radius=RADIUS)
 target_raw = None
 if not nearby:
     # Đã rời khỏi mọi phân khu -> quên phân khu đang thuyết minh, lần quay lại sẽ chọn lại theo ưu tiên
@@ -265,12 +266,12 @@ with st.sidebar:
         if st.button(tr('Xóa đường', 'Clear route', '清除路线'), use_container_width=True):
             st.session_state.target_route_id = None
             st.rerun()
-    st.caption(tr('Chạm vào bản đồ để chọn vị trí, hoặc bật "Dùng GPS của tôi" khi đang ở Thảo Cầm Viên. Thuyết minh tự phát khi bạn cách một khu dưới 50 m.',
-                  'Tap the map to set your position, or turn on "Use my GPS" inside the garden. Narration plays within 50 m of a zone.',
-                  '点击地图设定位置，或在园内打开"使用我的GPS"。距离展区50米以内时自动播放讲解。'))
+    st.caption(tr(f'Chạm vào bản đồ để chọn vị trí, hoặc bật "Dùng GPS của tôi" khi đang ở Thảo Cầm Viên. Thuyết minh tự phát khi bạn tới sát một khu (khoảng {RADIUS:.0f} m).',
+                  f'Tap the map to set your position, or turn on "Use my GPS" inside the garden. Narration plays when you reach a zone (about {RADIUS:.0f} m).',
+                  f'点击地图设定位置，或在园内打开"使用我的GPS"。走到展区附近（约{RADIUS:.0f}米）时自动播放讲解。'))
 
 
-# ===== Dẫn đường: tới nơi chưa? (khu đích đang được thuyết minh = đã vào vùng 50 m của khu đó) =====
+# ===== Dẫn đường: tới nơi chưa? (khu đích đang được thuyết minh = đã vào vùng phát thuyết minh của khu đó) =====
 arrived_name = None
 goal = next((x for x in all_exhibits if x['id'] == st.session_state.target_route_id), None) if st.session_state.target_route_id else None
 if goal and ((target_raw and target_raw['id'] == goal['id']) or
@@ -329,7 +330,7 @@ with col_map:
         for spot in project_many(spots):
             folium.Marker(location=spot, tooltip=label, popup=label, icon=ui.pin_icon(item.get('map_no'))).add_to(fmap)
 
-    # Lớp động (cập nhật mỗi lần bạn di chuyển, không tải lại bản đồ): vị trí, vòng 50 m, đường đi
+    # Lớp động (cập nhật mỗi lần bạn di chuyển, không tải lại bản đồ): vị trí, vòng phát thuyết minh, đường đi
     live = folium.FeatureGroup(name=tr('Vị trí và đường đi', 'Position and route', '位置与路线'), control=False)
     if st.session_state.target_route_id:
         target_info = next((item for item in all_exhibits if item['id'] == st.session_state.target_route_id), None)
@@ -366,7 +367,7 @@ with col_map:
                                      'No connected walking path reaches this zone. Try starting from another point on the map.',
                                      '没有可通往该展区的步道，请在地图上换一个起点。'))
     me = project_many([(st.session_state.user_lat, st.session_state.user_lng)])[0]
-    ring = artmap.metres_to_px(st.session_state.user_lat, st.session_state.user_lng, 50) if art else 50   # vòng 50 m thật
+    ring = artmap.metres_to_px(st.session_state.user_lat, st.session_state.user_lng, RADIUS) if art else RADIUS   # bán kính thật
     folium.Marker(location=me, tooltip=tr('Bạn đang ở đây', 'You are here', '您在这里'),
                   icon=folium.Icon(color='pink', icon='street-view', prefix='fa')).add_to(live)
     folium.Circle(location=me, radius=ring, color=ui.LOTUS, weight=2, dash_array='6, 6',
@@ -387,7 +388,7 @@ with col_map:
         legend_zones = [(tr('Cọc số: phân khu theo bản đồ Thảo Cầm Viên', 'Numbered pins: zones as on the official zoo map',
                             '数字标记：与动植物园官方地图一致的展区'), ui.PIN_RED)]
     st.markdown(ui.legend(legend_zones,
-                          tr('Bạn đang ở đây, vòng 50 m', 'You are here, 50 m ring', '您的位置，50米范围'),
+                          tr(f'Bạn đang ở đây, vòng {RADIUS:.0f} m', f'You are here, {RADIUS:.0f} m ring', f'您的位置，{RADIUS:.0f}米范围'),
                           tr('Đường đi bộ gợi ý', 'Suggested walking route', '建议步行路线')), unsafe_allow_html=True)
     if map_out and map_out.get('last_clicked'):
         c_lat, c_lng = map_out['last_clicked']['lat'], map_out['last_clicked']['lng']
@@ -457,7 +458,7 @@ with col_info:
         closest = min(all_exhibits, key=lambda x: ui.haversine_m(st.session_state.user_lat, st.session_state.user_lng, x['lat'], x['lng']))
         far = ui.haversine_m(st.session_state.user_lat, st.session_state.user_lng, closest['lat'], closest['lng'])
         st.markdown(ui.empty_state(
-            tr('Chưa có khu nào trong vòng 50 m', 'No zone within 50 m yet', '50米内暂无展区'),
+            tr('Chưa tới khu nào', 'Not at a zone yet', '尚未到达展区'),
             tr(f'Khu gần bạn nhất là {closest["name"]}, cách khoảng {far:.0f} m. Chọn khu đó ở mục "Đi bộ tới" rồi bấm Tìm đường, hoặc chạm thẳng vào bản đồ.',
                f'The closest zone is {closest["name"]}, about {far:.0f} m away. Pick it under "Walk to" and press Find route, or tap the map.',
                f'离您最近的是 {closest["name"]}，约 {far:.0f} 米。可在"步行前往"中选择并点击查找路线，或直接点击地图。')),
