@@ -43,7 +43,7 @@ def test_load_52_zones_on_database_copy():
         out = run('-d', 'tcv_map52_copy', '-f', str(SQL)).stdout       # chạy lại lần 2 vẫn an toàn
         row = [c.strip() for c in out.strip().splitlines()[-2].split('|')]
         assert row[:4] == ['52', '156', '14', '0']        # 52 khu, 156 bản dịch, 14 cọc phụ, 0 khu cũ
-        assert int(row[4]) > 500                          # mạng lối đi mới
+        assert int(row[4]) > 100                          # mạng lối đi theo đường vẽ trên sơ đồ
         ids = run('-d', 'tcv_map52_copy', '-At', '-c', 'SELECT COUNT(*) FROM exhibits WHERE id <> map_no').stdout.strip()
         assert ids == '0'                                  # id phân khu = đúng số trên sơ đồ
         check = run('-d', 'tcv_map52_copy', '-At', '-c', '''
