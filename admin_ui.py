@@ -55,9 +55,24 @@ def render_admin(exhibits, language):
 
 
     st.header(tr('Trang quản trị', 'Administration'))
-    _content_editor(exhibits, tr)
-    _visitor_stats(tr)
-    _qr_code(tr)
+    # Menu: mỗi chức năng một nút, chỉ hiện phần đang chọn cho dễ nhìn
+    menu = {'edit': 'Sửa / xoá phân khu', 'new': 'Thêm phân khu', 'stats': 'Thống kê khách', 'qr': 'Mã QR'}
+    choice = st.segmented_control('Chức năng', list(menu), format_func=menu.get, default='edit',
+                                  key='admin_menu', label_visibility='collapsed') or 'edit'
+    hints = {'edit': 'Chọn một khu để sửa tên, thuyết minh, ảnh, vị trí hoặc xoá khu.',
+             'new': 'Chạm vào bản đồ ở chỗ khách đứng xem, điền tên và thuyết minh rồi bấm Thêm phân khu.',
+             'stats': 'Xem khu nào đông, khu nào vắng trong tuần để có cách cải thiện.',
+             'qr': 'In mã này đặt ở cổng: khách quét là mở được trang hướng dẫn.'}
+    st.markdown(f'<p class="tcv-admin-hint">{hints[choice]}</p>', unsafe_allow_html=True)
+    with st.container(key='admin_card'):
+        if choice == 'edit':
+            _edit_zone(exhibits)
+        elif choice == 'new':
+            _new_zone(exhibits)
+        elif choice == 'stats':
+            _visitor_stats(tr)
+        else:
+            _qr_code(tr)
 
 
 def _change_password_form(tr):
@@ -427,36 +442,75 @@ def _explain_save_error(error, tr):
 
 
 def _visitor_stats(tr):
-    with st.expander(tr('Thống kê khách tham quan', 'Visitor statistics')):
-        try:
-            default_day = tracking.today()
-        except Exception:
-            st.info(tr('Chưa có dữ liệu khách. Hãy chạy migration 003 (python run_migrations.py).',
-                       'No visitor data yet. Run migration 003 (python run_migrations.py).'))
-            return
-        day = st.date_input(tr('Ngày thống kê', 'Date'), value=default_day, key='stats_day')
-        try:
-            s = tracking.summary(day)
-            rows = tracking.daily_stats(day)
-        except Exception:
-            logging.exception('Visitor statistics failed')
-            st.error(tr('Không tải được thống kê.', 'Could not load statistics.'))
-            return
-        m1, m2, m3 = st.columns(3)
-        m1.metric(tr('Tài khoản khách mới', 'New visitor accounts'), s['new_visitors'])
-        m2.metric(tr('Khách đã ghé ≥1 khu', 'Visitors at ≥1 zone'), s['active_visitors'])
-        m3.metric(tr('Điểm lưu vết', 'Track points'), s['track_points'])
-        label_zone, label_count = tr('Phân khu', 'Zone'), tr('Số khách', 'Visitors')
-        data = {label_zone: [r['name'] for r in rows], label_count: [int(r['visitors']) for r in rows]}
-        st.bar_chart(data, x=label_zone, y=label_count, horizontal=True)
-        st.dataframe(data, hide_index=True, use_container_width=True)
-        period = tr('mỗi ngày', 'daily') if tracking.RESET_PERIOD == 'day' else tr('mỗi tuần (thứ Hai)', 'weekly (Monday)')
-        st.caption(tr(f'Tài khoản khách tạm tự reset {period}. Mỗi khách được đếm 1 lần / phân khu / ngày.',
-                      f'Temporary visitor accounts reset {period}. Each visitor counts once per zone per day.'))
+    import datetime as dt
+    import altair as alt
+    try:
+        default_day = tracking.today()
+    except Exception:
+        st.info(tr('Chưa có dữ liệu khách. Hãy chạy migration 003 (python run_migrations.py).',
+                   'No visitor data yet. Run migration 003 (python run_migrations.py).'))
+        return
+    day = st.date_input('Xem tuần kết thúc ngày', value=default_day, key='stats_day', format='DD/MM/YYYY')
+    try:
+        s = tracking.summary(day)
+        week = tracking.weekly_stats(day, 7)
+        prev = tracking.weekly_stats(day - dt.timedelta(days=7), 7)
+    except Exception:
+        logging.exception('Visitor statistics failed')
+        st.error('Không tải được thống kê.')
+        return
+    m1, m2, m3 = st.columns(3)
+    m1.metric('Khách mới trong ngày', s['new_visitors'])
+    m2.metric('Khách đã ghé ít nhất 1 khu', s['active_visitors'])
+    m3.metric('Điểm lưu vết trong ngày', s['track_points'])
+
+    label = lambda r: f"{r['map_no']} · {r['name']}" if r.get('map_no') is not None else r['name']
+    totals, before = {}, {}
+    for r in week:
+        totals[label(r)] = totals.get(label(r), 0) + int(r['visitors'])
+    for r in prev:
+        before[label(r)] = before.get(label(r), 0) + int(r['visitors'])
+    if not totals:
+        st.info('Chưa có phân khu nào.')
+        return
+    ranked = sorted(totals, key=lambda k: (-totals[k], k))
+    weekday = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
+
+    st.markdown('#### Lượt khách theo ngày trong tuần')
+    picked = st.multiselect('Khu hiển thị trên biểu đồ', ranked, default=ranked[:5], key='stats_zones',
+                            help='Mặc định là 5 khu đông nhất tuần. Thêm hoặc bớt khu để so sánh.')
+    rows = [{'Ngày': f"{weekday[r['day'].weekday()]} {r['day']:%d/%m}", 'Thứ tự': r['day'].toordinal(),
+             'Phân khu': label(r), 'Số khách': int(r['visitors'])} for r in week if label(r) in picked]
+    if rows:
+        chart = (alt.Chart(alt.Data(values=rows))
+                 .mark_line(point=alt.OverlayMarkDef(size=60, filled=True), strokeWidth=2.5)
+                 .encode(x=alt.X('Ngày:N', sort=alt.SortField('Thứ tự'), title=None, axis=alt.Axis(labelAngle=0)),
+                         y=alt.Y('Số khách:Q', title='Số khách', axis=alt.Axis(tickMinStep=1)),
+                         color=alt.Color('Phân khu:N', legend=alt.Legend(orient='bottom', columns=2, title=None)),
+                         tooltip=['Ngày:N', 'Phân khu:N', 'Số khách:Q'])
+                 .properties(height=360))
+        st.altair_chart(chart, use_container_width=True)
+    else:
+        st.caption('Chọn ít nhất một khu để xem biểu đồ.')
+
+    def change(k):
+        diff = totals[k] - before.get(k, 0)
+        return f'+{diff}' if diff > 0 else str(diff)
+    busy, quiet = st.columns(2)
+    with busy:
+        st.markdown('**Đông nhất tuần**')
+        st.dataframe([{'Phân khu': k, 'Lượt khách': totals[k], 'So với tuần trước': change(k)} for k in ranked[:5]],
+                     hide_index=True, use_container_width=True)
+    with quiet:
+        st.markdown('**Vắng nhất tuần**')
+        st.dataframe([{'Phân khu': k, 'Lượt khách': totals[k], 'So với tuần trước': change(k)} for k in ranked[::-1][:5]],
+                     hide_index=True, use_container_width=True)
+    period = 'mỗi ngày' if tracking.RESET_PERIOD == 'day' else 'mỗi tuần (thứ Hai)'
+    st.caption(f'Mỗi khách được đếm 1 lần cho mỗi khu mỗi ngày. Tài khoản khách tạm tự reset {period}.')
 
 
 def _qr_code(tr):
-    with st.expander(tr('Mã QR vào web', 'Entry QR code')):
+    if True:
         url = PUBLIC_URL   # địa chỉ cố định trong Secrets ([app] public_url) để không in nhầm mã QR
         try:
             import qrcode

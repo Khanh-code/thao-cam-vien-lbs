@@ -10,11 +10,15 @@ import math
 from functools import lru_cache
 from pathlib import Path
 
-GREEN = '#1F5C43'    # màu nhấn chính: nút, tiêu đề phụ
-INK = '#17221C'      # chữ
-MUTED = '#5E6B63'    # chữ phụ
-LINE = '#E3E8E4'     # đường viền
-GROUND = '#F5F7F5'   # nền phụ (thanh bên, khối phụ)
+# Bảng màu lấy theo sơ đồ "Khám phá Thảo Cầm Viên": xanh lá cây, đỏ cọc số, nền kem
+GREEN = '#2E7D32'    # xanh lá chủ đạo: nút, tiêu đề phụ
+LEAF_LIGHT = '#E8F3DF'  # xanh lá nhạt: nền khối
+INK = '#1B2A1E'      # chữ
+MUTED = '#5C6B5E'    # chữ phụ
+LINE = '#DCE6D3'     # đường viền
+GROUND = '#F6F9F0'   # nền phụ (thanh bên, khối phụ)
+CREAM = '#FFFCF4'    # nền trang
+SUN = '#F5B700'      # vàng nắng: điểm nhấn nhỏ
 LOTUS = '#C8406E'    # hồng sen — "bạn"
 LEAF = GREEN
 
@@ -25,11 +29,12 @@ ZONE_ICON = {'#e74c3c': ('red', 'paw'), '#8e44ad': ('purple', 'paw'), '#e67e22':
 CSS = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap');
-:root {{ --green:{GREEN}; --ink:{INK}; --muted:{MUTED}; --line:{LINE}; --ground:{GROUND}; --lotus:{LOTUS}; }}
+:root {{ --green:{GREEN}; --ink:{INK}; --muted:{MUTED}; --line:{LINE}; --ground:{GROUND}; --lotus:{LOTUS};
+  --leaf:{LEAF_LIGHT}; --cream:{CREAM}; --sun:{SUN}; --red:#E3262E; }}
 html, body, .stApp, .stMarkdown, button, input, textarea, [data-testid="stSidebar"], [data-baseweb] {{
   font-family: 'Be Vietnam Pro', 'Noto Sans SC', system-ui, sans-serif;
 }}
-.stApp {{ background: #fff; color: var(--ink); }}
+.stApp {{ background: var(--cream); color: var(--ink); }}
 #MainMenu, footer, [data-testid="stStatusWidget"], [data-testid="stMainMenu"], [data-testid="stToolbarActions"],
 [data-testid="stAppDeployButton"] {{ visibility: hidden; }}
 /* Nút mở lại thanh bên (nằm trong thanh công cụ trên cùng): luôn hiện, nhất là trên điện thoại */
@@ -56,18 +61,18 @@ p, li {{ line-height: 1.6; }}
 [data-testid="stTextInputRootElement"]:focus-within, [data-testid="stTextAreaRootElement"]:focus-within,
 [data-testid="stSelectbox"] [role="group"]:focus-within, [data-testid="stDateInput"] [role="group"]:focus-within,
 [data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within, [data-baseweb="select"] > div:focus-within {{
-  border-color: var(--green) !important; box-shadow: 0 0 0 3px rgba(31,92,67,.12) !important; }}
+  border-color: var(--green) !important; box-shadow: 0 0 0 3px rgba(46,125,50,.15) !important; }}
 [data-testid="stTextInputRootElement"] input, [data-testid="stTextAreaRootElement"] textarea, [data-testid="stSelectbox"] input,
 [data-baseweb="input"] input, [data-baseweb="textarea"] textarea {{ background: #fff !important; color: var(--ink); }}
 [data-testid="stFileUploaderDropzone"] {{ background: #fff; border: 1px dashed #C3CEC6; border-radius: 8px; }}
 [data-testid="InputInstructions"] {{ display: none; }}
 
 /* Nút */
-.stButton button {{ border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink);
+.stButton button {{ border-radius: 10px; min-height: 2.6rem; border: 1px solid var(--line); background: #fff; color: var(--ink);
   font-weight: 500; box-shadow: none; }}
 .stButton button:hover {{ border-color: var(--green); color: var(--green); background: #fff; }}
 .stButton button[kind="primary"] {{ background: var(--green); border-color: var(--green); color: #fff; }}
-.stButton button[kind="primary"]:hover {{ background: #174A35; color: #fff; }}
+.stButton button[kind="primary"]:hover {{ background: #1F5E23; color: #fff; }}
 button:focus-visible, input:focus-visible {{ outline: 2px solid var(--lotus) !important; outline-offset: 2px; }}
 
 /* Danh sách khu (gom theo nhóm) và kết quả tìm kiếm: hàng chữ gọn, căn trái, ngăn bằng đường kẻ mảnh */
@@ -97,19 +102,26 @@ button:focus-visible, input:focus-visible {{ outline: 2px solid var(--lotus) !im
 [class*="st-key-lang"] [data-testid="stRadioOption"][data-selected="true"] p {{ color: #fff; }}
 
 /* Ảnh bìa */
-.tcv-hero {{ position: relative; height: 400px; border-radius: 16px; overflow: hidden; margin: 6px 0 30px;
-  background-size: cover; background-position: center 35%; display: flex; align-items: flex-end; }}
+.tcv-hero {{ position: relative; height: 430px; border-radius: 24px; overflow: hidden; margin: 6px 0 26px;
+  background-size: cover; background-position: center 35%; display: flex; align-items: flex-end;
+  box-shadow: 0 12px 30px rgba(27,42,30,.18); }}
 .tcv-hero::after {{ content: ""; position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(8,18,13,0) 25%, rgba(8,18,13,.55) 55%, rgba(8,18,13,.88) 100%),
-              linear-gradient(90deg, rgba(8,18,13,.45) 0%, rgba(8,18,13,0) 60%); }}
-.tcv-hero-text {{ position: relative; z-index: 1; padding: 0 36px 30px; max-width: 760px; }}
-.tcv-hero h1 {{ text-shadow: 0 1px 12px rgba(0,0,0,.25); color: #fff; font-size: clamp(2.1rem, 4.6vw, 3.6rem); font-weight: 700; line-height: 1.05;
-  letter-spacing: -0.035em; margin: 0 0 10px; padding: 0; text-wrap: balance; }}
-.tcv-hero p {{ color: rgba(255,255,255,.88); font-size: 1.12rem; line-height: 1.5; margin: 0; max-width: 46ch; }}
-.tcv-credit {{ position: absolute; right: 14px; bottom: 10px; z-index: 1; font-size: .72rem; color: rgba(255,255,255,.6); }}
+  background: linear-gradient(180deg, rgba(10,30,12,0) 25%, rgba(10,30,12,.5) 55%, rgba(10,30,12,.9) 100%),
+              linear-gradient(90deg, rgba(10,30,12,.45) 0%, rgba(10,30,12,0) 60%); }}
+.tcv-hero-text {{ position: relative; z-index: 1; padding: 0 38px 32px; max-width: 780px; }}
+.tcv-kicker {{ display: inline-block; background: var(--red); color: #fff; font-weight: 700; font-size: .8rem;
+  letter-spacing: .08em; text-transform: uppercase; padding: 5px 12px; border-radius: 999px; margin-bottom: 14px; }}
+.tcv-hero h1 {{ text-shadow: 0 1px 12px rgba(0,0,0,.25); color: #fff; font-size: clamp(2.1rem, 4.8vw, 3.8rem); font-weight: 800; line-height: 1.04;
+  letter-spacing: -0.035em; margin: 0 0 12px; padding: 0; text-wrap: balance; }}
+.tcv-hero p {{ color: rgba(255,255,255,.92); font-size: 1.14rem; line-height: 1.5; margin: 0; max-width: 46ch; }}
+.tcv-chips {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }}
+.tcv-chips span {{ background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.35); color: #fff;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); border-radius: 999px; padding: 6px 13px; font-size: .88rem; font-weight: 600; }}
+.tcv-chips b {{ color: var(--sun); margin-right: 4px; }}
+.tcv-credit {{ position: absolute; right: 16px; bottom: 12px; z-index: 1; font-size: .72rem; color: rgba(255,255,255,.6); }}
 
 /* Ô bật GPS: ngay trên bản đồ, hiện cả trên điện thoại */
-[class*="st-key-gps_box"] {{ background: var(--ground); border: 1px solid var(--line); border-radius: 12px;
+[class*="st-key-gps_box"] {{ background: var(--leaf); border: 1px solid var(--line); border-radius: 16px;
   padding: 10px 14px 4px; margin: -8px 0 18px; }}
 [class*="st-key-gps_box"] [data-testid="stAlert"] {{ margin-bottom: 6px; }}
 /* Khung theo dõi GPS chạy ngầm: không chiếm chỗ (vẫn chạy, chỉ không hiển thị) */
@@ -117,14 +129,20 @@ button:focus-visible, input:focus-visible {{ outline: 2px solid var(--lotus) !im
   overflow: hidden; opacity: 0; pointer-events: none; }}
 
 /* Tiêu đề khu vực */
-.tcv-section {{ font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 10px; color: var(--ink); }}
+.tcv-section {{ font-size: 1.3rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 10px; color: var(--ink); }}
 .tcv-section small {{ font-size: .88rem; font-weight: 400; color: var(--muted); margin-left: 8px; letter-spacing: 0; }}
 
 /* Thẻ hướng dẫn (ảnh ở trên, chữ ở dưới — như một trang sách hướng dẫn) */
-[class*="st-key-guide"] {{ border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 6px; background: #fff; }}
-[class*="st-key-guide"] img {{ border-radius: 10px; }}
-.tcv-zone {{ border-left: 4px solid var(--zc, var(--green)); padding: 2px 0 2px 14px; margin: 14px 0 12px; }}
-.tcv-zone h2 {{ font-size: 1.7rem; font-weight: 700; line-height: 1.15; letter-spacing: -0.03em; margin: 0 0 6px; padding: 0; }}
+[class*="st-key-guide"] {{ border: 1px solid var(--line); border-radius: 20px; padding: 16px 18px 8px; background: #fff;
+  box-shadow: 0 6px 20px rgba(27,42,30,.07); }}
+[class*="st-key-guide"] img {{ border-radius: 14px; }}
+[class*="st-key-guide"] audio {{ width: 100%; height: 48px; }}
+.tcv-zone {{ display: flex; gap: 14px; align-items: flex-start; margin: 14px 0 12px; }}
+.tcv-num {{ flex: none; width: 46px; height: 46px; border-radius: 50%; background: var(--red); color: #fff; font-weight: 800;
+  font-size: 1.15rem; display: flex; align-items: center; justify-content: center; border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(227,38,46,.35); }}
+.tcv-num.none {{ background: var(--zc, var(--green)); }}
+.tcv-zone h2 {{ font-size: 1.7rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.03em; margin: 0 0 6px; padding: 0; }}
 .tcv-meta {{ font-size: .92rem; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }}
 .tcv-meta .tcv-here {{ color: var(--lotus); font-weight: 600; display: inline-flex; align-items: center; gap: 7px; }}
 .tcv-here i {{ width: 8px; height: 8px; border-radius: 50%; background: var(--lotus); box-shadow: 0 0 0 0 rgba(200,64,110,.45);
@@ -135,7 +153,7 @@ button:focus-visible, input:focus-visible {{ outline: 2px solid var(--lotus) !im
 .tcv-note {{ font-size: .86rem; color: var(--muted); margin: -4px 0 10px; }}
 .tcv-counter {{ text-align: center; font-size: .86rem; color: var(--muted); padding-top: .5rem; }}
 
-.tcv-empty {{ padding: 26px 22px; border: 1px dashed #C9D3CC; border-radius: 16px; background: var(--ground); }}
+.tcv-empty {{ padding: 26px 22px; border: 1px dashed #B9CDA9; border-radius: 20px; background: var(--leaf); }}
 .tcv-empty h2 {{ font-size: 1.25rem; margin: 0 0 8px; padding: 0; }}
 .tcv-empty p {{ margin: 0; color: var(--ink); max-width: 52ch; }}
 
@@ -150,16 +168,39 @@ button:focus-visible, input:focus-visible {{ outline: 2px solid var(--lotus) !im
   border-radius: 10px; background: #FBEFF3; color: var(--ink); }}
 .tcv-route b {{ color: var(--lotus); }}
 .tcv-coords {{ font-size: .8rem; color: var(--muted); margin: 8px 0 0; }}
-iframe[title="streamlit_folium.st_folium"] {{ border-radius: 14px; border: 1px solid var(--line); }}
+iframe[title="streamlit_folium.st_folium"] {{ border-radius: 20px; border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(27,42,30,.08); }}
+
+/* Trang quản trị: menu nút lớn, mỗi phần là một thẻ */
+[class*="st-key-admin_menu"] [data-testid="stButtonGroup"] > div {{ gap: 8px; flex-wrap: wrap; }}
+[class*="st-key-admin_menu"] [data-testid="stButtonGroup"] button {{ border-radius: 999px !important; border: 1px solid var(--line) !important;
+  background: #fff !important; color: var(--ink) !important; padding: 8px 20px; min-height: 2.7rem; margin: 0 !important; }}
+[class*="st-key-admin_menu"] [data-testid="stButtonGroup"] button p {{ font-weight: 600; font-size: .95rem; }}
+[class*="st-key-admin_menu"] [data-testid="stButtonGroup"] button[aria-checked="true"] {{
+  background: var(--green) !important; border-color: var(--green) !important; color: #fff !important; }}
+[class*="st-key-admin_menu"] [data-testid="stButtonGroup"] button[aria-checked="true"] p {{ color: #fff !important; }}
+[class*="st-key-admin_card"] {{ background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 18px 20px 10px;
+  box-shadow: 0 6px 20px rgba(27,42,30,.06); }}
+.tcv-admin-hint {{ color: var(--muted); font-size: .92rem; margin: -6px 0 14px; }}
+[data-testid="stMetric"] {{ background: var(--leaf); border-radius: 16px; padding: 12px 16px; }}
+
+/* Khung script ẩn (thanh tab điện thoại): không chiếm chỗ trên trang */
+[data-testid="stElementContainer"]:has(> iframe[title="st.iframe"]), .stElementContainer:has(iframe[title="st.iframe"]) {{
+  position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }}
 
 @media (max-width: 760px) {{
-  .block-container {{ padding-left: 1rem; padding-right: 1rem; }}
-  .tcv-hero {{ height: 250px; margin-bottom: 20px; border-radius: 14px; }}
-  .tcv-hero-text {{ padding: 0 20px 20px; }}
+  .block-container {{ padding-left: .9rem; padding-right: .9rem; padding-bottom: 6.5rem; }}
+  .tcv-hero {{ height: 300px; margin-bottom: 18px; border-radius: 20px; }}
+  .tcv-hero-text {{ padding: 0 18px 18px; }}
   .tcv-hero p {{ font-size: 1rem; }}
+  .tcv-kicker {{ font-size: .72rem; margin-bottom: 10px; }}
+  .tcv-chips {{ margin-top: 12px; gap: 6px; }}
+  .tcv-chips span {{ font-size: .78rem; padding: 4px 10px; }}
   .tcv-credit {{ display: none; }}
   [class*="st-key-lang"] [role="radiogroup"] {{ justify-content: flex-start; }}
-  .tcv-zone h2 {{ font-size: 1.45rem; }}
+  .tcv-zone h2 {{ font-size: 1.4rem; }}
+  .tcv-num {{ width: 40px; height: 40px; font-size: 1rem; }}
+  .stButton button {{ min-height: 2.9rem; }}
+  [class*="st-key-admin_card"] {{ padding: 14px 12px 6px; border-radius: 16px; }}
 }}
 </style>
 """
@@ -209,12 +250,14 @@ def top_bar_brand(name, place):
     return f'<div class="tcv-brand">{esc(name)} <span>{esc(place)}</span></div>'
 
 
-def hero(title, subtitle, image_path, credit=''):
+def hero(title, subtitle, image_path, credit='', kicker='', chips=()):
     uri = _data_uri(str(image_path))
     bg = f"background-image:url('{uri}')" if uri else f'background:{GREEN}'
     credit_html = f'<div class="tcv-credit">{esc(credit)}</div>' if credit else ''
-    return (f'<section class="tcv-hero" style="{bg}"><div class="tcv-hero-text">'
-            f'<h1>{esc(title)}</h1><p>{esc(subtitle)}</p></div>{credit_html}</section>')
+    kicker_html = f'<span class="tcv-kicker">{esc(kicker)}</span>' if kicker else ''
+    chips_html = ('<div class="tcv-chips">' + ''.join(f'<span><b>{esc(a)}</b>{esc(b)}</span>' for a, b in chips) + '</div>') if chips else ''
+    return (f'<section class="tcv-hero" style="{bg}"><div class="tcv-hero-text">{kicker_html}'
+            f'<h1>{esc(title)}</h1><p>{esc(subtitle)}</p>{chips_html}</div>{credit_html}</section>')
 
 
 def section(title, hint=''):
@@ -222,10 +265,44 @@ def section(title, hint=''):
     return f'<div class="tcv-section">{esc(title)}{small}</div>'
 
 
-def zone_header(name, distance_text, now_label, zone_color):
-    return (f'<div class="tcv-zone" style="--zc:{esc(zone_color)}"><h2>{esc(name)}</h2>'
+def zone_header(name, distance_text, now_label, zone_color, number=None):
+    badge = (f'<div class="tcv-num">{int(number)}</div>' if number is not None else '<div class="tcv-num none"></div>')
+    return (f'<div class="tcv-zone" style="--zc:{esc(zone_color)}">{badge}<div><h2>{esc(name)}</h2>'
             f'<div class="tcv-meta"><span class="tcv-here"><i></i>{esc(now_label)}</span>'
-            f'<span>{esc(distance_text)}</span></div></div>')
+            f'<span>{esc(distance_text)}</span></div></div></div>')
+
+
+def mobile_tabbar(labels):
+    """Thanh tab cố định dưới màn hình điện thoại: Bản đồ / Thuyết minh / Tìm khu / Chỉ đường.
+    Chèn vào trang chính (iframe cùng nguồn) — chỉ cuộn tới phần tương ứng hoặc mở thanh bên, không đổi chức năng."""
+    icons = {'map': '&#128506;', 'guide': '&#127911;', 'search': '&#128269;', 'route': '&#128694;'}
+    buttons = ''.join(f'<button data-go="{k}"><span>{icons[k]}</span>{esc(v)}</button>' for k, v in labels.items())
+    css = (f"#tcv-tabbar{{position:fixed;left:0;right:0;bottom:0;z-index:999990;display:none;background:#fff;"
+           f"border-top:1px solid {LINE};box-shadow:0 -4px 16px rgba(27,42,30,.10);padding:6px 6px calc(6px + env(safe-area-inset-bottom));}}"
+           f"#tcv-tabbar button{{flex:1;border:0;background:none;font:600 12px/1.2 'Be Vietnam Pro',system-ui,sans-serif;"
+           f"color:{MUTED};display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;border-radius:12px;}}"
+           f"#tcv-tabbar button span{{font-size:20px;line-height:1}}#tcv-tabbar button:active{{background:{LEAF_LIGHT};color:{GREEN}}}"
+           f"@media (max-width:760px){{#tcv-tabbar{{display:flex}}}}")
+    return f"""<script>
+(function(){{
+  const d = window.parent.document;
+  let bar = d.getElementById('tcv-tabbar');
+  if (!bar) {{ bar = d.createElement('nav'); bar.id = 'tcv-tabbar'; d.body.appendChild(bar);
+    const st = d.createElement('style'); st.textContent = {css!r}; d.head.appendChild(st); }}
+  bar.innerHTML = {buttons!r};
+  const openSide = (sel) => {{
+    const b = d.querySelector('[data-testid="stExpandSidebarButton"]'); if (b) b.click();
+    setTimeout(() => {{ const el = d.querySelector(sel); if (el) {{ el.scrollIntoView({{behavior:'smooth', block:'center'}});
+      const i = el.querySelector('input'); if (i) i.focus(); }} }}, 350);
+  }};
+  bar.onclick = (e) => {{
+    const k = e.target.closest('button')?.dataset.go; if (!k) return;
+    if (k === 'map' || k === 'guide') {{ const el = d.getElementById('tcv-' + k); if (el) el.scrollIntoView({{behavior:'smooth', block:'start'}}); }}
+    else if (k === 'search') openSide('[class*="st-key-search_q"]');
+    else openSide('[class*="st-key-route_pick"]');
+  }};
+}})();
+</script>"""
 
 
 def story(text, note=''):

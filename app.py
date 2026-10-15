@@ -72,6 +72,8 @@ render_admin(raw_exhibits, language)
 # Admin chỉ cần công cụ quản trị; giao diện khách chỉ hiện khi bật xem thử
 admin_mode = is_admin()
 if admin_mode and not st.sidebar.toggle(tr('Xem giao diện khách', 'Preview visitor view', '预览游客界面'), key='admin_preview'):
+    # trang admin không cần thanh tab của khách
+    components.html("<script>window.parent.document.getElementById('tcv-tabbar')?.remove()</script>", height=0)
     st.stop()
 
 if 'user_lat' not in st.session_state:
@@ -90,8 +92,15 @@ st.markdown(ui.hero(
        'Hear each zone’s story as you reach it. When you want to move on, the app shows you the way.',
        '走到哪里，就听到哪里的故事。想去下一个展区，系统为您指路。'),
     BASE / 'images' / 'cong_chinh.jpg',
-    tr('Cổng chính, đường Nguyễn Bỉnh Khiêm', 'Main gate (Thảo Cầm Viên), Nguyễn Bỉnh Khiêm street', '正门（Thảo Cầm Viên），Nguyễn Bỉnh Khiêm 街')),
+    tr('Cổng chính, đường Nguyễn Bỉnh Khiêm', 'Main gate (Thảo Cầm Viên), Nguyễn Bỉnh Khiêm street', '正门（Thảo Cầm Viên），Nguyễn Bỉnh Khiêm 街'),
+    kicker=tr('Hướng dẫn tham quan', 'Visitor guide', '游览导览'),
+    chips=[(str(len(all_exhibits)), tr(' khu tham quan', ' zones', ' 个展区')),
+           ('3', tr(' ngôn ngữ', ' languages', ' 种语言')),
+           ('', tr('Tự kể khi bạn tới gần', 'Plays when you arrive', '走近自动讲解'))]),
     unsafe_allow_html=True)
+# Thanh tab dưới cùng trên điện thoại (chỉ cuộn / mở thanh bên, không đổi chức năng)
+components.html(ui.mobile_tabbar({'map': tr('Bản đồ', 'Map', '地图'), 'guide': tr('Thuyết minh', 'Story', '讲解'),
+                                  'search': tr('Tìm khu', 'Search', '搜索'), 'route': tr('Chỉ đường', 'Route', '路线')}), height=0)
 
 # ===== Vị trí: mô phỏng (chạm bản đồ, mặc định) hoặc GPS thật, theo dõi liên tục như Google Maps =====
 zoo_lat = sum(x['lat'] for x in all_exhibits) / len(all_exhibits)
@@ -234,7 +243,7 @@ with st.sidebar:
     st.markdown('<div class="tcv-side-title">' + ui.esc(tr('Đi bộ tới', 'Walk to', '步行前往')) + '</div>', unsafe_allow_html=True)
     route_options = {item['id']: ui.zone_label(item) for item in all_exhibits}
     selected_target = st.selectbox(tr('Điểm đến', 'Destination', '目的地'), options=list(route_options.keys()),
-                                   format_func=lambda x: route_options[x], label_visibility='collapsed')
+                                   format_func=lambda x: route_options[x], label_visibility='collapsed', key='route_pick')
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
         if st.button(tr('Tìm đường', 'Find route', '查找路线'), type='primary', use_container_width=True):
@@ -259,6 +268,7 @@ if goal and ((target_raw and target_raw['id'] == goal['id']) or
 
 col_map, col_info = st.columns([7, 5], gap='large')
 with col_map:
+    st.markdown('<div id="tcv-map"></div>', unsafe_allow_html=True)
     st.markdown(ui.section(tr('Bản đồ', 'Map', '地图'),
                            tr('Bản đồ đang đi theo bạn', 'The map follows you', '地图正在跟随您') if gps_live else
                            tr('Chạm vào bản đồ để di chuyển', 'Tap the map to move', '点击地图移动')), unsafe_allow_html=True)
@@ -378,6 +388,7 @@ with col_map:
             st.rerun()
 
 with col_info:
+    st.markdown('<div id="tcv-guide"></div>', unsafe_allow_html=True)
     st.markdown(ui.section(tr('Thuyết minh', 'Narration', '讲解')), unsafe_allow_html=True)
     if target_raw:
         target = with_vietnamese_name(localize(target_raw, language, content_translations), target_raw['name'], language)
@@ -404,7 +415,8 @@ with col_info:
             dist = float(target['distance_meters'] or 0)
             dist_text = (tr('Bạn đang ở trong khu này', 'You are inside this zone', '您正在该展区内') if dist < 1 else
                          tr(f'Cách bạn {dist:.0f} m', f'{dist:.0f} m from you', f'距您 {dist:.0f} 米'))
-            st.markdown(ui.zone_header(target['name'], dist_text, tr('Đang thuyết minh', 'Now playing', '正在讲解'), zone_color(target_raw)),
+            st.markdown(ui.zone_header(target['name'], dist_text, tr('Đang thuyết minh', 'Now playing', '正在讲解'), zone_color(target_raw),
+                                       next((x.get('map_no') for x in raw_exhibits if x['id'] == target_raw['id']), None)),
                         unsafe_allow_html=True)
             audio_file = str((BASE / 'audio' / (target.get('audio_file') or '')).resolve())
             voice = tracking_call(generated_audio, *target['audio_key']) if target.get('audio_key') else None
