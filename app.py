@@ -16,6 +16,7 @@ import ui
 import location
 import artmap
 import search
+import data_sync
 import streamlit.components.v1 as components
 from zones import zone_images
 
@@ -49,6 +50,9 @@ def tr(vi, en, zh=None):
 
 
 try:
+    # Nạp dữ liệu 52 phân khu + lối đi (neon_52_phan_khu.sql) nếu database còn bản cũ. Chỉ chạy khi file thay đổi.
+    if data_sync.ensure_map_data() == 'updated':
+        get_all_exhibits.clear(); get_all_walkways.clear(); query_nearby.clear(); get_shortest_path.clear()
     raw_exhibits = get_all_exhibits()
     content_translations = translations(language)
     # Tên riêng giữ nguyên tiếng Việt có dấu: tên phân khu dịch kèm tên gốc

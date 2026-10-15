@@ -78,3 +78,27 @@ def test_art_map_round_trip():
     # 50 m thật trên sơ đồ khoảng 80-200 px (sơ đồ co giãn theo vùng)
     assert 60 < artmap.metres_to_px(*real[1], 50) < 250
     assert artmap.leaflet(10, 20) == [-20, 10] and artmap.from_leaflet(-20, 10) == (10, 20)
+
+
+@needs_db
+def test_auto_sync_loads_once_on_database_copy(monkeypatch):
+    """Database còn bản cũ -> app tự chạy neon_52_phan_khu.sql một lần; lần sau bỏ qua."""
+    env = dict(os.environ, PGPASSWORD=os.getenv('POSTGRES_PASSWORD', ''))
+    run = lambda *a: subprocess.run(['psql', '-q', '-h', 'localhost', '-U', 'postgres', *a], env=env, check=True, capture_output=True, text=True)
+    run('-c', 'DROP DATABASE IF EXISTS tcv_sync_copy'); run('-c', 'CREATE DATABASE tcv_sync_copy')
+    dump = subprocess.run(['pg_dump', '-h', 'localhost', '-U', 'postgres', os.getenv('POSTGRES_DBNAME', 'tcv')],
+                          env=env, check=True, capture_output=True, text=True).stdout
+    subprocess.run(['psql', '-q', '-h', 'localhost', '-U', 'postgres', '-d', 'tcv_sync_copy'], input=dump, env=env, check=True, capture_output=True, text=True)
+    try:
+        import data_sync
+        monkeypatch.setenv('APP_AUTO_DATA_SYNC', '1')
+        monkeypatch.setitem(data_sync.DB_CONFIG, 'dbname', 'tcv_sync_copy')
+        data_sync.ensure_map_data.clear()
+        assert data_sync.ensure_map_data() == 'updated'
+        data_sync.ensure_map_data.clear()
+        assert data_sync.ensure_map_data() == 'current'
+        n = run('-d', 'tcv_sync_copy', '-At', '-c', 'SELECT COUNT(*) FROM exhibits WHERE map_no IS NOT NULL').stdout.strip()
+        assert n == '52'
+    finally:
+        data_sync.ensure_map_data.clear()
+        run('-c', 'DROP DATABASE IF EXISTS tcv_sync_copy')
