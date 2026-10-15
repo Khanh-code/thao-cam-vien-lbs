@@ -441,9 +441,10 @@ def _explain_save_error(error, tr):
     st.code(f'{type(error).__name__}: {str(error).strip()[:800]}', language=None)
 
 
-@st.fragment(run_every=20)
+@st.fragment(run_every=3 * 60 * 60)
 def _visitor_stats(tr):
-    """Tự cập nhật mỗi 20 giây (chỉ phần thống kê chạy lại, không tải lại trang, không phải đăng nhập lại)."""
+    """Tự cập nhật 3 tiếng một lần; admin bấm "Tải lại số liệu" khi cần xem ngay.
+    Chỉ phần thống kê chạy lại: không tải lại trang, không phải đăng nhập lại."""
     import datetime as dt
     import altair as alt
     try:
@@ -466,7 +467,10 @@ def _visitor_stats(tr):
     m1.metric('Khách trong ngày', s['new_visitors'])
     m2.metric('Lượt ghé các khu trong ngày', s.get('visits', s['active_visitors']))
     m3.metric('Điểm lưu vết trong ngày', s['track_points'])
-    st.caption(f'Tự cập nhật mỗi 20 giây · lần cuối {dt.datetime.now().astimezone(dt.timezone(dt.timedelta(hours=7))):%H:%M:%S}')
+    c_note, c_reload = st.columns([4, 1], vertical_alignment='center')
+    c_note.caption(f'Số liệu lúc {dt.datetime.now().astimezone(dt.timezone(dt.timedelta(hours=7))):%H:%M:%S} · tự cập nhật 3 tiếng một lần')
+    if c_reload.button('Tải lại số liệu', type='primary', use_container_width=True, key='stats_reload'):
+        st.rerun(scope='fragment')
 
     label = lambda r: f"{r['map_no']} · {r['name']}" if r.get('map_no') is not None else r['name']
     totals, before = {}, {}
@@ -481,8 +485,21 @@ def _visitor_stats(tr):
     weekday = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
 
     st.markdown('#### Lượt ghé theo ngày trong tuần')
-    picked = st.multiselect('Khu hiển thị trên biểu đồ', ranked, default=ranked[:5], key='stats_zones',
-                            help='Mặc định là 5 khu đông nhất tuần. Thêm hoặc bớt khu để so sánh.')
+    # Mặc định: 5 khu đông nhất tuần (chỉ khu có lượt ghé), tự đổi theo số liệu mới.
+    # Admin tự thêm / bớt khu thì giữ lựa chọn đó cho tới khi bấm "5 khu đông nhất".
+    top = [k for k in ranked if totals[k] > 0][:5] or ranked[:5]
+    if st.session_state.get('stats_zones') is None or st.session_state.get('stats_zones') == st.session_state.get('stats_auto_top'):
+        st.session_state['stats_zones'] = top
+    st.session_state['stats_auto_top'] = top
+    c_sel, c_btn = st.columns([5, 1], vertical_alignment='bottom')
+    picked = c_sel.multiselect('Khu hiển thị trên biểu đồ', ranked, key='stats_zones',
+                               help='Mặc định là 5 khu đông nhất tuần và tự cập nhật. Thêm hoặc bớt khu để so sánh.')
+    if c_btn.button('5 khu đông nhất', use_container_width=True):
+        st.session_state['stats_zones'] = top
+        st.rerun(scope='fragment')
+    is_auto = picked == top
+    st.caption('Đang hiện 5 khu đông nhất tuần (tự cập nhật theo lượt ghé mới).' if is_auto else
+               'Đang hiện các khu bạn tự chọn. Bấm "5 khu đông nhất" để quay về mặc định.')
     rows = [{'Ngày': f"{weekday[r['day'].weekday()]} {r['day']:%d/%m}", 'Thứ tự': r['day'].toordinal(),
              'Phân khu': label(r), 'Lượt ghé': int(r['visitors'])} for r in week if label(r) in picked]
     if rows:
